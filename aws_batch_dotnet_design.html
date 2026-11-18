@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS .NET Multi-Tenant Batch Architecture</title>
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            line-height: 1.6; 
+            color: #24292e; 
+            max-width: 1100px; 
+            margin: 0 auto; 
+            padding: 30px; 
+            background-color: #f6f8fa; 
+        }
+        h1, h2, h3 { color: #0366d6; }
+        .container { 
+            background-color: #ffffff; 
+            padding: 40px; 
+            border-radius: 8px; 
+            box-shadow: 0 1px 3px rgba(27,31,35,0.12), 0 8px 24px rgba(27,31,35,0.12); 
+        }
+        .diagram-container { 
+            margin: 30px 0; 
+            padding: 20px; 
+            background-color: #ffffff; 
+            border-radius: 8px; 
+            border: 1px solid #e1e4e8; 
+            text-align: center;
+            overflow-x: auto;
+        }
+        pre { 
+            background-color: #1e1e1e; 
+            color: #d4d4d4; 
+            padding: 15px; 
+            border-radius: 6px; 
+            overflow-x: auto; 
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 14px;
+        }
+        code { 
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; 
+            font-size: 14px;
+        }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 20px 0; 
+            font-size: 14px;
+        }
+        th, td { 
+            border: 1px solid #e1e4e8; 
+            padding: 12px 15px; 
+            text-align: left; 
+        }
+        th { 
+            background-color: #f6f8fa; 
+            color: #24292e; 
+            font-weight: 600;
+        }
+        tr:nth-child(even) { background-color: #fcfcfc; }
+    </style>
+    <!-- Include Mermaid.js -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+    <script>
+      mermaid.initialize({ startOnLoad: true, theme: 'default' });
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>AWS .NET Multi-Tenant Batch Architecture</h1>
+        <p><strong>Building a Spring Batch–style, KMS-aware, multi-tenant data purge engine in .NET on AWS.</strong></p>
+
+        <h2>1. Executive Summary & Architectural Vision</h2>
+        <ul>
+            <li><strong>Multi-Tenant Configuration:</strong> Each tenant has custom retention windows, purge rules, schedules, and isolated or shared data stores.</li>
+            <li><strong>Bimodal Workload Profile:</strong> Initial heavy backfill (millions of rows) vs. lightweight daily ongoing purges.</li>
+            <li><strong>KMS Cryptographic Isolation:</strong> Tenant data is protected by AWS KMS. The engine must decrypt/verify without violating cross-tenant boundaries or hitting KMS rate limits.</li>
+            <li><strong>Spring Batch Ergonomics in .NET:</strong> Requires chunk-based processing, cursor checkpointing, item-level skip/retry, and dead-letter logging natively in .NET 8.</li>
+        </ul>
+
+        <h2>2. High-Level System Architecture</h2>
+        <div class="diagram-container">
+            <div class="mermaid">
+                flowchart TD
+                    subgraph Trigger ["1. Trigger & Scheduling Layer"]
+                        Cron[EventBridge Scheduler<br>Per-Tenant Cron] --> SF[Step Functions<br>Multi-Tenant Purge Orchestrator]
+                    end
+
+                    subgraph Meta ["2. Metadata & Job Repository (DynamoDB)"]
+                        TConfig[(TenantPurgeConfig Table<br>- TenantId, Retention<br>- KmsKeyArn)]
+                        BRepo[(BatchJobRepository Table<br>- JobExecutionId<br>- LastCursorToken)]
+                    end
+                    
+                    SF -->|1. Read Config & Checkpoint| Meta
+
+                    SF -->|2. Evaluate Backlog Size| Router{Smart Router}
+                    
+                    Router -->|> 50k records or Initial| Heavy[3A. AWS Batch<br>Heavy Initial Run<br>Fargate/EC2 Spot]
+                    Router -->|< 50k records| Light[3B. AWS Lambda<br>Light Ongoing Run<br>< 15 mins]
+
+                    Heavy --> STS[3. Assume Tenant Scoped Role STS]
+                    Light --> STS
+
+                    subgraph Engine ["4. .NET 8 Spring Batch Engine & KMS Layer"]
+                        STS --> IAM[STS Session Policy<br>Restricts to Tenant KMS Key]
+                        IAM --> Cache[AWS Encryption SDK +<br>Local Data Key Cache]
+                        
+                        Cache --> Reader[IChunkReader<br>Keyset Paginator]
+                        Reader -->|Channel T| Processor[IItemProcessor<br>KMS Check & Audit]
+                        Processor -->|Channel T| Writer[IChunkWriter<br>Bulk Delete & Checkpoint]
+                    end
+            </div>
+        </div>
+
+        <h2>3. Mapping Spring Batch Concepts to .NET + AWS</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Spring Batch Concept</th>
+                    <th>AWS + .NET 8 Equivalent</th>
+                    <th>Responsibility</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>JobLauncher & Job</strong></td>
+                    <td><strong>AWS Step Functions</strong> (Distributed Map)</td>
+                    <td>Iterates active tenants, resolves config, routes between Heavy/Light compute.</td>
+                </tr>
+                <tr>
+                    <td><strong>JobRepository</strong></td>
+                    <td><strong>Amazon DynamoDB</strong> (BatchJobRepository)</td>
+                    <td>Persists JobExecution, StepExecution, ExecutionContext (cursor), and counters.</td>
+                </tr>
+                <tr>
+                    <td><strong>Step (Tasklet/Chunk)</strong></td>
+                    <td><strong>.NET 8 Container / Lambda Worker</strong></td>
+                    <td>Executes a discrete phase (Identify & Archive, Hard-Purge, Audit).</td>
+                </tr>
+                <tr>
+                    <td><strong>ItemReader&lt;T&gt;</strong></td>
+                    <td><strong>IChunkReader&lt;T&gt;</strong> (IAsyncEnumerable)</td>
+                    <td>Streams expired records using keyset pagination.</td>
+                </tr>
+                <tr>
+                    <td><strong>ItemProcessor&lt;T, Out&gt;</strong></td>
+                    <td><strong>IItemProcessor&lt;T, Out&gt;</strong></td>
+                    <td>Validates locks, decrypts KMS fields, prepares DTOs.</td>
+                </tr>
+                <tr>
+                    <td><strong>ItemWriter&lt;Out&gt;</strong></td>
+                    <td><strong>IChunkWriter&lt;Out&gt;</strong></td>
+                    <td>Executes batched deletes wrapped in Polly resilience, atomically updates cursor.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>4. Multi-Tenant KMS Architecture & Security Flow</h2>
+        <p>Using dynamic tenant-scoped IAM + Local Data Key Caching prevents Noisy Neighbor starvation, ensures strict cryptographic blast-radius isolation, and avoids KMS quota throttling (<code>KMSThrottlingException</code>).</p>
+        
+        <div class="diagram-container">
+            <div class="mermaid">
+                sequenceDiagram
+                    participant W as .NET Purge Worker
+                    participant STS as AWS STS
+                    participant KMS as AWS KMS
+                    
+                    W->>STS: 1. AssumeRole (SessionPolicy scoped to Tenant KmsKeyArn)
+                    STS-->>W: 2. Return Scoped Credentials
+                    
+                    rect rgb(240, 248, 255)
+                        Note over W,KMS: Chunk 1 Processing
+                        W->>W: 3. Check CachingMaterialsManager (Miss)
+                        W->>KMS: 4. Decrypt/GenerateDataKey (Context: TenantId)
+                        KMS-->>W: 5. Return Data Key
+                        W->>W: Cache Data Key locally (5 mins)
+                    end
+                    
+                    rect rgb(240, 255, 240)
+                        Note over W: Chunks 2 to N Processing
+                        W->>W: 6. Process next 10,000 chunks using Cached Data Key (0 KMS API calls)
+                    end
+            </div>
+        </div>
+
+        <h2>5. Core .NET 8 Engine Implementation Blueprint</h2>
+        <h3>Dynamic Tenant-Scoped IAM Policy</h3>
+        <pre><code>{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt",
+        "kms:GenerateDataKey",
+        "kms:DescribeKey"
+      ],
+      "Resource": "arn:aws:kms:eu-west-1:111122223333:key/mrk-tenant99key",
+      "Condition": {
+        "StringEquals": {
+          "kms:EncryptionContext:TenantId": "tenant-99"
+        }
+      }
+    }
+  ]
+}</code></pre>
+
+        <h3>Chunk-Oriented Executor (C#)</h3>
+        <p>Demonstrating how to handle Spot interruptions smoothly via DynamoDB checkpointing.</p>
+        <pre><code>public sealed class ChunkStepExecutor&lt;TIn, TOut&gt;(
+    IChunkReader&lt;TIn&gt; reader,
+    IItemProcessor&lt;TIn, TOut&gt; processor,
+    IChunkWriter&lt;TOut&gt; writer,
+    IJobRepository jobRepository,
+    ILogger&lt;ChunkStepExecutor&lt;TIn, TOut&gt;&gt; logger)
+{
+    public async Task ExecuteStepAsync(TenantJobContext initialContext, CancellationToken ct)
+    {
+        // 1. Recover previous state from JobRepository (Restartability)
+        var checkpoint = await jobRepository.GetOrCreateStepExecutionAsync(initialContext, ct);
+        var currentContext = initialContext with { LastCursorToken = checkpoint.LastCursorToken };
+
+        await foreach (var rawChunk in reader.ReadChunksAsync(currentContext, ct))
+        {
+            var processedBatch = new List&lt;TOut&gt;(rawChunk.Count);
+            int skippedInChunk = 0;
+
+            // 2. ItemProcessor phase
+            foreach (var item in rawChunk)
+            {
+                try
+                {
+                    var result = await processor.ProcessAsync(item, currentContext, ct);
+                    if (result is not null) processedBatch.Add(result);
+                    else skippedInChunk++;
+                }
+                catch (PurgeSkippableException ex)
+                {
+                    skippedInChunk++;
+                    await jobRepository.LogSkippedItemAsync(currentContext, item, ex.Message, ct);
+                }
+            }
+
+            // 3. ItemWriter phase
+            if (processedBatch.Count > 0)
+            {
+                string nextCursor = await writer.WriteChunkAsync(processedBatch, currentContext, ct);
+                currentContext = currentContext with { LastCursorToken = nextCursor };
+            }
+
+            // 4. Commit Checkpoint
+            await jobRepository.CommitChunkCheckpointAsync(
+                jobExecutionId: currentContext.JobExecutionId,
+                newCursorToken: currentContext.LastCursorToken,
+                readCountDelta: rawChunk.Count,
+                writeCountDelta: processedBatch.Count,
+                skipCountDelta: skippedInChunk,
+                ct: ct);
+        }
+
+        await jobRepository.MarkStepCompletedAsync(currentContext.JobExecutionId, ct);
+    }
+}</code></pre>
+    </div>
+</body>
+</html>

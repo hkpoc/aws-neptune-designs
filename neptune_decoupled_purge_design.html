@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Tenant Amazon Neptune Decoupled Purge Engine — System Design</title>
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --bg-card: #1e293b;
+            --bg-card-alt: #162032;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-blue: #38bdf8;
+            --accent-indigo: #818cf8;
+            --accent-emerald: #34d399;
+            --accent-amber: #fbbf24;
+            --accent-rose: #fb7185;
+            --border-color: #334155;
+            --code-bg: #0b1120;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            line-height: 1.6;
+            padding: 2rem 3rem;
+            max-width: 1440px;
+            margin: 0 auto;
+        }
+
+        header {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 1.75rem;
+            margin-bottom: 2.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .title-group h1 {
+            font-size: 2.1rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: var(--text-main);
+            margin-bottom: 0.4rem;
+        }
+
+        .title-group p {
+            color: var(--text-muted);
+            font-size: 1.05rem;
+        }
+
+        .meta-badges {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            padding: 0.35rem 0.85rem;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+        }
+
+        .badge.blue { color: var(--accent-blue); border-color: rgba(56, 189, 248, 0.3); }
+        .badge.emerald { color: var(--accent-emerald); border-color: rgba(52, 211, 153, 0.3); }
+        .badge.amber { color: var(--accent-amber); border-color: rgba(251, 191, 36, 0.3); }
+
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--accent-blue);
+            margin: 2.5rem 0 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+
+        h3 {
+            font-size: 1.15rem;
+            font-weight: 600;
+            color: var(--text-main);
+            margin: 1.25rem 0 0.75rem;
+        }
+
+        p {
+            margin-bottom: 1rem;
+            color: #cbd5e1;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .card-header h3 {
+            margin: 0;
+            font-size: 1.15rem;
+        }
+
+        .diagram-container {
+            background-color: var(--code-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+            overflow-x: auto;
+            text-align: center;
+        }
+
+        .diagram-caption {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: 0.75rem;
+            text-align: center;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.25rem 0;
+            background-color: var(--bg-card);
+            border-radius: 0.75rem;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+
+        th, td {
+            padding: 0.9rem 1.1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.92rem;
+        }
+
+        th {
+            background-color: var(--bg-card-alt);
+            color: var(--accent-blue);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            letter-spacing: 0.04em;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr.recommended-row {
+            background-color: rgba(52, 211, 153, 0.08);
+            border-left: 4px solid var(--accent-emerald);
+        }
+
+        ul, ol {
+            padding-left: 1.4rem;
+            margin-bottom: 1rem;
+            color: #cbd5e1;
+        }
+
+        li {
+            margin-bottom: 0.45rem;
+        }
+
+        code, pre {
+            font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+            font-size: 0.86rem;
+        }
+
+        code {
+            background-color: var(--code-bg);
+            color: var(--accent-amber);
+            padding: 0.15rem 0.4rem;
+            border-radius: 0.25rem;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+
+        pre {
+            background-color: var(--code-bg);
+            color: #e2e8f0;
+            padding: 1.25rem;
+            border-radius: 0.5rem;
+            border: 1px solid var(--border-color);
+            overflow-x: auto;
+            margin: 1rem 0;
+            line-height: 1.5;
+        }
+
+        .callout {
+            padding: 1.25rem 1.5rem;
+            border-radius: 0.5rem;
+            margin: 1.5rem 0;
+            border-left: 4px solid var(--accent-blue);
+            background-color: rgba(56, 189, 248, 0.08);
+        }
+
+        .callout.emerald {
+            border-left-color: var(--accent-emerald);
+            background-color: rgba(52, 211, 153, 0.08);
+        }
+
+        .callout.amber {
+            border-left-color: var(--accent-amber);
+            background-color: rgba(251, 191, 36, 0.08);
+        }
+
+        .callout-title {
+            font-weight: 700;
+            margin-bottom: 0.4rem;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .tag-pill {
+            display: inline-block;
+            padding: 0.15rem 0.55rem;
+            border-radius: 0.25rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .tag-high { background: rgba(52, 211, 153, 0.15); color: var(--accent-emerald); }
+        .tag-med { background: rgba(251, 191, 36, 0.15); color: var(--accent-amber); }
+        .tag-low { background: rgba(251, 113, 133, 0.15); color: var(--accent-rose); }
+
+        svg {
+            max-width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="title-group">
+            <h1>Multi-Tenant Amazon Neptune Decoupled Purge Engine</h1>
+            <p>Architecture Design, AWS Compute Evaluation, Backpressure Control &amp; Observability Blueprint</p>
+        </div>
+        <div class="meta-badges">
+            <span class="badge blue">Multi-Tenant Graph Architecture</span>
+            <span class="badge emerald">Recommended: Step Functions + Batch (Fargate) + SQS</span>
+            <span class="badge amber">Adaptive DB Backpressure</span>
+        </div>
+    </header>
+
+    <!-- SECTION 1: EXECUTIVE SUMMARY & NEPTUNE ISOLATION -->
+    <section>
+        <h2>1. Architectural Context &amp; Neptune Isolation Mechanics</h2>
+        <p>
+            Purging millions of vertices and edges from live multi-tenant Amazon Neptune clusters presents two distinct operational risks:
+            <strong>(1) Discovery Traverse Overhead</strong>, where deep graph traversals evict warm buffer-pool cache pages and spike read IOPS on production instances; and
+            <strong>(2) Write Amplification &amp; MVCC UndoLog Growth</strong>, where unthrottled batch <code>drop()</code> mutations flood the primary writer's transaction queue and inflate <code>UndoLogListSize</code>.
+        </p>
+
+        <div class="callout amber">
+            <div class="callout-title">Critical Neptune Architecture Distinction: Fast Database Clone vs. Read Replica</div>
+            <p style="margin-bottom:0;">
+                In Amazon Neptune, a standard <strong>Read Replica</strong> belongs to the primary DB cluster and shares the underlying distributed storage fleet. Adding a read replica cannot exist "outside the cluster." To achieve true isolation outside the production cluster without incurring full snapshot restore durations or double storage charges, the Discovery Phase provisions an ephemeral <strong>Neptune Fast Database Clone</strong> (<code>RestoreDBClusterFromDBCluster</code> with <code>copy-tags-to-snapshot</code>). Fast Cloning uses copy-on-write (CoW) page pointers—provisioning in ~5–12 minutes regardless of multi-terabyte storage volume, costing zero extra storage for unchanged pages, and providing 100% compute, buffer cache, and cluster-endpoint isolation from production traffic.
+            </p>
+        </div>
+
+        <div class="grid-3">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Decoupled Discovery</h3>
+                    <span class="tag-pill tag-high">Zero Prod Impact</span>
+                </div>
+                <p>Spins up an ephemeral single-instance <strong>Neptune Fast Clone</strong> per tenant. Streams candidate Vertex/Edge IDs via cursor-paginated queries directly to S3 manifest chunks (<code>JSONL.gz</code>, 5,000 IDs/chunk), then immediately terminates the clone.</p>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h3>Elastic Scale (M to K)</h3>
+                    <span class="tag-pill tag-high">Scale-to-Zero</span>
+                </div>
+                <p>Handles both the initial multi-million record backlog (multi-hour drainage) and lighter weekly steady-state runs (minutes) without hitting 15-minute Lambda timeouts or paying for 24/7 idle compute across weekly intervals.</p>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h3>Closed-Loop Execution</h3>
+                    <span class="tag-pill tag-high">Self-Throttling</span>
+                </div>
+                <p>Applies deletes to the production Writer in micro-batches (100–500 IDs), actively polling Neptune CloudWatch health metrics (<code>CPUUtilization</code>, <code>MainRequestQueuePendingRequests</code>, <code>UndoLogListSize</code>) to dynamically throttle concurrency or pause execution.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION 2: AWS SERVICE COMPARISON -->
+    <section>
+        <h2>2. AWS Compute &amp; Orchestration Options Comparison</h2>
+        <p>
+            Evaluating four candidate AWS architectures against your workload profile: weekly scheduling, multi-tenant fan-out driven by DynamoDB, massive variance between Day-1 backlog (millions of records) and Day-2 steady state, fine-grained DB health throttling, and end-to-end observability.
+        </p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Evaluation Criterion</th>
+                    <th>Option A: Step Functions + AWS Lambda</th>
+                    <th>Option B: Step Functions + AWS Batch (Fargate) + SQS ⭐</th>
+                    <th>Option C: AWS Glue / EMR Serverless (Spark)</th>
+                    <th>Option D: Amazon EKS (CronJobs / KEDA)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Orchestration &amp; Runtime Limits</strong></td>
+                    <td><span class="tag-pill tag-low">15-Min Hard Cap</span><br>Requires complex cursor continuation loops for multi-million initial discovery scans.</td>
+                    <td><span class="tag-pill tag-high">Unlimited Duration</span><br>Step Functions manages clone lifecycle; Batch Fargate containers run hours for backlog or minutes for weekly delta.</td>
+                    <td><span class="tag-pill tag-high">Unlimited Duration</span><br>Built for massive batch jobs, though cold-start DPU provisioning adds overhead for small tenants.</td>
+                    <td><span class="tag-pill tag-high">Unlimited Duration</span><br>Pods run to completion; requires managing cluster upgrade lifecycle and VPC CNI IP exhaustion.</td>
+                </tr>
+                <tr>
+                    <td><strong>Cost Profile (Weekly Schedule)</strong></td>
+                    <td><span class="tag-pill tag-med">Moderate</span><br>Cheap for small delta runs, but recursive state transitions on millions of records inflate Step Function transition costs.</td>
+                    <td><span class="tag-pill tag-high">Optimal (Pay-per-Second)</span><br>Zero idle cost. Discovery uses Fargate Spot (~70% savings); Execution scales exact vCPU/Memory per active tenant.</td>
+                    <td><span class="tag-pill tag-low">Expensive</span><br>Minimum DPU billing and Spark driver overhead are wasteful when throttling writes to protect Neptune.</td>
+                    <td><span class="tag-pill tag-med">Good if Existing Cluster</span><br>Low marginal cost if running on shared EKS nodes; high overhead if dedicated cluster.</td>
+                </tr>
+                <tr>
+                    <td><strong>Performance &amp; Backpressure Control</strong></td>
+                    <td><span class="tag-pill tag-low">Coarse</span><br>Pausing inside Lambda burns billed GB-seconds; concurrent invocations risk saturating Neptune WebSocket pools.</td>
+                    <td><span class="tag-pill tag-high">Fine-Grained</span><br>Long-lived container workers maintain warm Gremlin/openCypher connection pools and adaptive token-bucket rate limiters.</td>
+                    <td><span class="tag-pill tag-low">Over-Parallelized</span><br>Spark executors easily overwhelm Neptune transactional write locks unless heavily crippled.</td>
+                    <td><span class="tag-pill tag-high">Fine-Grained</span><br>Native connection pooling and rate limiting, but lacks managed state-machine visibility for clone provisioning.</td>
+                </tr>
+                <tr>
+                    <td><strong>Multi-Tenant Isolation &amp; Config</strong></td>
+                    <td>Native DynamoDB integration via Step Functions <code>Distributed Map</code>.</td>
+                    <td>Step Functions queries DynamoDB &amp; fans out isolated Batch jobs per tenant with dedicated SQS queues/prefixes.</td>
+                    <td>Requires custom driver orchestration to iterate tenant VPC endpoints.</td>
+                    <td>Requires custom operator or Argo Workflows to coordinate Neptune Clone RDS API lifecycle.</td>
+                </tr>
+                <tr>
+                    <td><strong>Observability &amp; Auditability</strong></td>
+                    <td>Fragmented across thousands of short-lived Lambda log streams.</td>
+                    <td><span class="tag-pill tag-high">Unified</span><br>Visual Step Functions workflow graph + CloudWatch EMF per-tenant metrics + DynamoDB ledger + S3 manifest audit trail.</td>
+                    <td>Spark UI metrics; poor native correlation with Neptune DB metrics.</td>
+                    <td>Requires Prometheus/Grafana or ADOT collector sidecars.</td>
+                </tr>
+                <tr class="recommended-row">
+                    <td><strong>Architectural Verdict</strong></td>
+                    <td>Not Recommended (Fails on multi-million initial backlog scans &amp; sleep costs).</td>
+                    <td><strong>RECOMMENDED</strong> — Best balance of serverless scale-to-zero cost, unlimited runtime, and stateful backpressure.</td>
+                    <td>Not Recommended (Spark DPU cost &amp; parallelism mismatch for throttled OLTP deletes).</td>
+                    <td>Runner-Up (Viable only if you mandate Kubernetes for all batch workloads, still needs SFN for DB Clone lifecycle).</td>
+                </tr>
+            </tbody>
+        </table>
+    </section>
+
+    <!-- SECTION 3: RECOMMENDED ARCHITECTURE & COMPONENT DIAGRAM -->
+    <section>
+        <h2>3. Recommended Architecture &amp; Component Diagram</h2>
+        <p>
+            The recommended architecture combines <strong>Amazon EventBridge Scheduler</strong>, <strong>AWS Step Functions</strong> (Control Plane), <strong>AWS Batch on AWS Fargate</strong> (Data Plane), <strong>Amazon S3 + Amazon SQS</strong> (Decoupling Buffer), and <strong>Amazon DynamoDB</strong> (Tenant Configuration &amp; Execution Ledger).
+        </p>
+
+        <div class="diagram-container">
+            <svg viewBox="0 0 1200 680" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                        <path d="M 0 1 L 10 5 L 0 9 z" fill="#38bdf8"/>
+                    </marker>
+                    <marker id="arrow-emerald" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                        <path d="M 0 1 L 10 5 L 0 9 z" fill="#34d399"/>
+                    </marker>
+                    <marker id="arrow-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                        <path d="M 0 1 L 10 5 L 0 9 z" fill="#fbbf24"/>
+                    </marker>
+                    <marker id="arrow-rose" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                        <path d="M 0 1 L 10 5 L 0 9 z" fill="#fb7185"/>
+                    </marker>
+                </defs>
+
+                <!-- Background Swimlanes -->
+                <rect x="15" y="15" width="1170" height="145" rx="10" fill="#131c31" stroke="#334155" stroke-dasharray="5,5"/>
+                <text x="30" y="40" fill="#38bdf8" font-size="13" font-weight="bold" letter-spacing="1">CONTROL PLANE &amp; TENANT METADATA</text>
+
+                <rect x="15" y="175" width="565" height="330" rx="10" fill="#132226" stroke="#059669" stroke-dasharray="5,5"/>
+                <text x="30" y="200" fill="#34d399" font-size="13" font-weight="bold" letter-spacing="1">PHASE 1: ISOLATED DISCOVERY PLANE (READ-ONLY)</text>
+
+                <rect x="600" y="175" width="585" height="330" rx="10" fill="#231c18" stroke="#d97706" stroke-dasharray="5,5"/>
+                <text x="615" y="200" fill="#fbbf24" font-size="13" font-weight="bold" letter-spacing="1">PHASE 2: CONTROLLED EXECUTION PLANE (THROTTLED WRITES)</text>
+
+                <rect x="15" y="520" width="1170" height="145" rx="10" fill="#19162b" stroke="#6366f1" stroke-dasharray="5,5"/>
+                <text x="30" y="545" fill="#818cf8" font-size="13" font-weight="bold" letter-spacing="1">OBSERVABILITY, TELEMETRY &amp; AUDIT PLANE</text>
+
+                <!-- Control Plane Nodes -->
+                <rect x="35" y="60" width="175" height="75" rx="8" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+                <text x="122" y="92" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">EventBridge Scheduler</text>
+                <text x="122" y="114" fill="#94a3b8" font-size="11" text-anchor="middle">Weekly Cron Trigger</text>
+
+                <rect x="270" y="55" width="290" height="85" rx="8" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+                <text x="415" y="83" fill="#f8fafc" font-size="14" font-weight="bold" text-anchor="middle">AWS Step Functions</text>
+                <text x="415" y="103" fill="#38bdf8" font-size="11" text-anchor="middle">Multi-Tenant Orchestrator (Map State)</text>
+                <text x="415" y="122" fill="#94a3b8" font-size="10" text-anchor="middle">Clone Lifecycle • Job Sync • Error Recovery</text>
+
+                <rect x="640" y="55" width="245" height="85" rx="8" fill="#1e293b" stroke="#818cf8" stroke-width="2"/>
+                <text x="762" y="83" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">DynamoDB: TenantConfig</text>
+                <text x="762" y="103" fill="#94a3b8" font-size="11" text-anchor="middle">Cluster Endpoints, Purge Rules,</text>
+                <text x="762" y="120" fill="#94a3b8" font-size="11" text-anchor="middle">Batch Size, SLA Thresholds</text>
+
+                <rect x="925" y="55" width="240" height="85" rx="8" fill="#1e293b" stroke="#818cf8" stroke-width="2"/>
+                <text x="1045" y="83" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">DynamoDB: PurgeRunLedger</text>
+                <text x="1045" y="103" fill="#94a3b8" font-size="11" text-anchor="middle">DiscoveredCount, PurgedCount,</text>
+                <text x="1045" y="120" fill="#94a3b8" font-size="11" text-anchor="middle">Checkpoints, Run Status</text>
+
+                <!-- Discovery Plane Nodes -->
+                <rect x="40" y="235" width="230" height="100" rx="8" fill="#1e293b" stroke="#34d399" stroke-width="2"/>
+                <text x="155" y="265" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">AWS Batch (Fargate Spot)</text>
+                <text x="155" y="285" fill="#34d399" font-size="12" text-anchor="middle">Discovery Worker Container</text>
+                <text x="155" y="305" fill="#94a3b8" font-size="10" text-anchor="middle">Paginated Graph Scan &amp; Chunking</text>
+                <text x="155" y="320" fill="#94a3b8" font-size="10" text-anchor="middle">(5,000 IDs / JSONL.gz Chunk)</text>
+
+                <rect x="40" y="385" width="230" height="95" rx="8" fill="#1e293b" stroke="#34d399" stroke-width="2" stroke-dasharray="4,2"/>
+                <text x="155" y="415" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">Ephemeral Neptune Clone</text>
+                <text x="155" y="435" fill="#34d399" font-size="11" text-anchor="middle">Isolated Read-Only Instance</text>
+                <text x="155" y="453" fill="#94a3b8" font-size="10" text-anchor="middle">Copy-on-Write Storage • Destroyed Post-Scan</text>
+
+                <rect x="330" y="235" width="225" height="100" rx="8" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+                <text x="442" y="265" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">Amazon S3</text>
+                <text x="442" y="285" fill="#38bdf8" font-size="12" text-anchor="middle">Purge Manifest Store</text>
+                <text x="442" y="305" fill="#94a3b8" font-size="10" text-anchor="middle">s3://purge-manifests/{tenant}/{run}/</text>
+                <text x="442" y="320" fill="#94a3b8" font-size="10" text-anchor="middle">part-0001.jsonl.gz ... part-N</text>
+
+                <rect x="330" y="385" width="225" height="95" rx="8" fill="#1e293b" stroke="#fbbf24" stroke-width="2"/>
+                <text x="442" y="415" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">Amazon SQS + DLQ</text>
+                <text x="442" y="435" fill="#fbbf24" font-size="12" text-anchor="middle">Chunk Work Queue</text>
+                <text x="442" y="453" fill="#94a3b8" font-size="10" text-anchor="middle">1 Message = 1 S3 Manifest Chunk Pointer</text>
+
+                <!-- Execution Plane Nodes -->
+                <rect x="635" y="235" width="250" height="115" rx="8" fill="#1e293b" stroke="#fbbf24" stroke-width="2"/>
+                <text x="760" y="263" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">AWS Batch (Fargate On-Demand)</text>
+                <text x="760" y="283" fill="#fbbf24" font-size="12" text-anchor="middle">Adaptive Purge Executor</text>
+                <text x="760" y="303" fill="#94a3b8" font-size="10" text-anchor="middle">• AIMD Concurrency Controller</text>
+                <text x="760" y="318" fill="#94a3b8" font-size="10" text-anchor="middle">• Polls CloudWatch DB Health</text>
+                <text x="760" y="333" fill="#94a3b8" font-size="10" text-anchor="middle">• Sub-batches 200 IDs per drop()</text>
+
+                <rect x="935" y="235" width="225" height="115" rx="8" fill="#1e293b" stroke="#fb7185" stroke-width="2"/>
+                <text x="1047" y="268" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">Production Neptune Cluster</text>
+                <text x="1047" y="288" fill="#fb7185" font-size="12" text-anchor="middle">Tenant Primary Writer</text>
+                <text x="1047" y="308" fill="#94a3b8" font-size="10" text-anchor="middle">Live Application Traffic +</text>
+                <text x="1047" y="323" fill="#94a3b8" font-size="10" text-anchor="middle">Metered Idempotent Deletes</text>
+
+                <rect x="785" y="395" width="260" height="85" rx="8" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+                <text x="915" y="423" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">Neptune CloudWatch Metrics</text>
+                <text x="915" y="443" fill="#38bdf8" font-size="10" text-anchor="middle">CPUUtilization • UndoLogListSize</text>
+                <text x="915" y="458" fill="#38bdf8" font-size="10" text-anchor="middle">MainRequestQueuePendingRequests</text>
+
+                <!-- Observability Nodes -->
+                <rect x="40" y="565" width="335" height="75" rx="8" fill="#1e293b" stroke="#818cf8" stroke-width="2"/>
+                <text x="207" y="595" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">CloudWatch Embedded Metric Format (EMF)</text>
+                <text x="207" y="615" fill="#94a3b8" font-size="11" text-anchor="middle">Custom Namespace: NeptunePurge/Execution</text>
+
+                <rect x="430" y="565" width="340" height="75" rx="8" fill="#1e293b" stroke="#818cf8" stroke-width="2"/>
+                <text x="600" y="595" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">CloudWatch Dashboards &amp; Alarms</text>
+                <text x="600" y="615" fill="#94a3b8" font-size="11" text-anchor="middle">Discovered vs. Purged • Throttle Rate • DLQ Depth</text>
+
+                <rect x="825" y="565" width="335" height="75" rx="8" fill="#1e293b" stroke="#818cf8" stroke-width="2"/>
+                <text x="992" y="595" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">Amazon Athena (S3 Manifest Audit)</text>
+                <text x="992" y="615" fill="#94a3b8" font-size="11" text-anchor="middle">Ad-hoc SQL Queries on Historical Purged IDs</text>
+
+                <!-- Connectors -->
+                <line x1="210" y1="97" x2="262" y2="97" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow-blue)"/>
+                <line x1="560" y1="97" x2="632" y2="97" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow-blue)"/>
+                <line x1="885" y1="97" x2="917" y2="97" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow-blue)"/>
+
+                <!-- Step Functions to Discovery & Clone -->
+                <path d="M 330 140 L 155 140 L 155 227" fill="none" stroke="#34d399" stroke-width="2" marker-end="url(#arrow-emerald)"/>
+                <path d="M 480 140 L 760 140 L 760 227" fill="none" stroke="#fbbf24" stroke-width="2" marker-end="url(#arrow-amber)"/>
+
+                <!-- Discovery Worker to Clone, S3, SQS -->
+                <line x1="155" y1="335" x2="155" y2="377" stroke="#34d399" stroke-width="2" marker-end="url(#arrow-emerald)"/>
+                <line x1="270" y1="285" x2="322" y2="285" stroke="#34d399" stroke-width="2" marker-end="url(#arrow-emerald)"/>
+                <path d="M 270 310 L 300 310 L 300 432 L 322 432" fill="none" stroke="#fbbf24" stroke-width="2" marker-end="url(#arrow-amber)"/>
+
+                <!-- Execution Worker to S3, SQS, Neptune, CW -->
+                <line x1="555" y1="432" x2="660" y2="355" stroke="#fbbf24" stroke-width="2" marker-end="url(#arrow-amber)"/>
+                <line x1="635" y1="285" x2="563" y2="285" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow-blue)"/>
+                <line x1="885" y1="292" x2="927" y2="292" stroke="#fb7185" stroke-width="2.5" marker-end="url(#arrow-rose)"/>
+
+                <!-- Health Feedback Loop -->
+                <line x1="1047" y1="350" x2="960" y2="390" stroke="#38bdf8" stroke-width="1.8" stroke-dasharray="4,3" marker-end="url(#arrow-blue)"/>
+                <line x1="840" y1="395" x2="785" y2="355" stroke="#38bdf8" stroke-width="1.8" stroke-dasharray="4,3" marker-end="url(#arrow-blue)"/>
+
+                <!-- Telemetry Emissions -->
+                <path d="M 155 480 L 155 557" fill="none" stroke="#818cf8" stroke-width="1.5" stroke-dasharray="3,3" marker-end="url(#arrow-blue)"/>
+                <path d="M 710 350 L 710 510 L 260 510 L 260 557" fill="none" stroke="#818cf8" stroke-width="1.5" stroke-dasharray="3,3" marker-end="url(#arrow-blue)"/>
+                <line x1="375" y1="602" x2="422" y2="602" stroke="#818cf8" stroke-width="2" marker-end="url(#arrow-blue)"/>
+            </svg>
+            <div class="diagram-caption">Figure 1: Multi-Tenant Decoupled Discovery (Ephemeral Fast Clone) &amp; Closed-Loop Throttled Execution Architecture</div>
+        </div>
+    </section>
+
+    <!-- SECTION 4: END-TO-END SEQUENCE DIAGRAM -->
+    <section>
+        <h2>4. End-to-End Execution Sequence Diagram</h2>
+        <p>
+            The sequence diagram below illustrates the lifecycle of a single weekly tenant run, highlighting how Discovery and Execution are strictly decoupled via S3 manifests and SQS chunk pointers, and how the ephemeral clone is destroyed before or immediately upon discovery completion to minimize AWS Neptune instance hours.
+        </p>
+
+        <div class="diagram-container">
+            <svg viewBox="0 0 1200 760" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <marker id="seq-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                        <path d="M 0 1 L 10 5 L 0 9 z" fill="#38bdf8"/>
+                    </marker>
+                    <marker id="seq-arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                        <path d="M 0 1 L 10 5 L 0 9 z" fill="#34d399"/>
+                    </marker>
+                    <marker id="seq-arrow-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                        <path d="M 0 1 L 10 5 L 0 9 z" fill="#fbbf24"/>
+                    </marker>
+                </defs>
+
+                <!-- Participant Headers -->
+                <g font-size="12" font-weight="bold" text-anchor="middle" fill="#f8fafc">
+                    <rect x="25" y="20" width="130" height="45" rx="6" fill="#1e293b" stroke="#38bdf8"/>
+                    <text x="90" y="47">Step Functions</text>
+
+                    <rect x="190" y="20" width="130" height="45" rx="6" fill="#1e293b" stroke="#818cf8"/>
+                    <text x="255" y="47">DynamoDB</text>
+
+                    <rect x="355" y="20" width="140" height="45" rx="6" fill="#1e293b" stroke="#34d399"/>
+                    <text x="425" y="47">Neptune Fast Clone</text>
+
+                    <rect x="530" y="20" width="140" height="45" rx="6" fill="#1e293b" stroke="#34d399"/>
+                    <text x="600" y="47">Batch: Discovery</text>
+
+                    <rect x="705" y="20" width="130" height="45" rx="6" fill="#1e293b" stroke="#38bdf8"/>
+                    <text x="770" y="47">S3 + SQS Queue</text>
+
+                    <rect x="870" y="20" width="140" height="45" rx="6" fill="#1e293b" stroke="#fbbf24"/>
+                    <text x="940" y="47">Batch: Executor</text>
+
+                    <rect x="1045" y="20" width="135" height="45" rx="6" fill="#1e293b" stroke="#fb7185"/>
+                    <text x="1112" y="47">Prod Neptune + CW</text>
+                </g>
+
+                <!-- Lifelines -->
+                <g stroke="#334155" stroke-width="1.5" stroke-dasharray="4,4">
+                    <line x1="90" y1="65" x2="90" y2="730"/>
+                    <line x1="255" y1="65" x2="255" y2="730"/>
+                    <line x1="425" y1="65" x2="425" y2="730"/>
+                    <line x1="600" y1="65" x2="600" y2="730"/>
+                    <line x1="770" y1="65" x2="770" y2="730"/>
+                    <line x1="940" y1="65" x2="940" y2="730"/>
+                    <line x1="1112" y1="65" x2="1112" y2="730"/>
+                </g>
+
+                <!-- Step 1: Fetch Tenant Config -->
+                <line x1="90" y1="95" x2="247" y2="95" stroke="#38bdf8" stroke-width="2" marker-end="url(#seq-arrow)"/>
+                <text x="170" y="88" fill="#cbd5e1" font-size="11" text-anchor="middle">1. Query Active Tenants &amp; Init RunId</text>
+
+                <!-- Phase 1 Box -->
+                <rect x="40" y="120" width="800" height="245" rx="6" fill="rgba(52, 211, 153, 0.05)" stroke="#059669" stroke-dasharray="3,3"/>
+                <text x="55" y="140" fill="#34d399" font-size="11" font-weight="bold">PHASE 1: ISOLATED DISCOVERY</text>
+
+                <line x1="90" y1="160" x2="417" y2="160" stroke="#34d399" stroke-width="2" marker-end="url(#seq-arrow-green)"/>
+                <text x="255" y="153" fill="#cbd5e1" font-size="11" text-anchor="middle">2. RestoreDBClusterFromDBCluster (Fast CoW Clone)</text>
+
+                <line x1="90" y1="200" x2="592" y2="200" stroke="#34d399" stroke-width="2" marker-end="url(#seq-arrow-green)"/>
+                <text x="340" y="193" fill="#cbd5e1" font-size="11" text-anchor="middle">3. SubmitJob (Discovery Container with Clone RO Endpoint)</text>
+
+                <line x1="600" y1="235" x2="433" y2="235" stroke="#34d399" stroke-width="2" marker-end="url(#seq-arrow-green)"/>
+                <text x="515" y="228" fill="#cbd5e1" font-size="11" text-anchor="middle">4. Stream Expired Vertex/Edge IDs</text>
+
+                <line x1="600" y1="275" x2="762" y2="275" stroke="#34d399" stroke-width="2" marker-end="url(#seq-arrow-green)"/>
+                <text x="685" y="268" fill="#cbd5e1" font-size="11" text-anchor="middle">5. Upload 5k-ID Chunk to S3 + Push SQS Pointer</text>
+
+                <line x1="600" y1="315" x2="263" y2="315" stroke="#34d399" stroke-width="2" marker-end="url(#seq-arrow-green)"/>
+                <text x="430" y="308" fill="#cbd5e1" font-size="11" text-anchor="middle">6. Update DiscoveredCount &amp; Emit EMF Metrics</text>
+
+                <line x1="90" y1="350" x2="417" y2="350" stroke="#fb7185" stroke-width="2" marker-end="url(#seq-arrow)"/>
+                <text x="255" y="343" fill="#fb7185" font-size="11" font-weight="bold" text-anchor="middle">7. DeleteDBInstance &amp; DeleteDBCluster (Tear Down Clone Immediately)</text>
+
+                <!-- Phase 2 Box -->
+                <rect x="40" y="385" width="1135" height="315" rx="6" fill="rgba(251, 191, 36, 0.05)" stroke="#d97706" stroke-dasharray="3,3"/>
+                <text x="55" y="405" fill="#fbbf24" font-size="11" font-weight="bold">PHASE 2: METERED EXECUTION LOOP (ADAPTIVE BACKPRESSURE)</text>
+
+                <line x1="90" y1="430" x2="932" y2="430" stroke="#fbbf24" stroke-width="2" marker-end="url(#seq-arrow-amber)"/>
+                <text x="510" y="423" fill="#cbd5e1" font-size="11" text-anchor="middle">8. SubmitJob (Purge Executor Container for Tenant)</text>
+
+                <line x1="940" y1="470" x2="778" y2="470" stroke="#fbbf24" stroke-width="2" marker-end="url(#seq-arrow-amber)"/>
+                <text x="855" y="463" fill="#cbd5e1" font-size="11" text-anchor="middle">9. Poll SQS Chunk &amp; Stream S3 Manifest</text>
+
+                <line x1="940" y1="515" x2="1104" y2="515" stroke="#38bdf8" stroke-width="2" marker-end="url(#seq-arrow)"/>
+                <text x="1025" y="508" fill="#38bdf8" font-size="11" text-anchor="middle">10. Check CW Health (CPU, Queue, UndoLog)</text>
+
+                <line x1="940" y1="560" x2="1104" y2="560" stroke="#fbbf24" stroke-width="2" marker-end="url(#seq-arrow-amber)"/>
+                <text x="1025" y="553" fill="#fbbf24" font-size="11" text-anchor="middle">11. Execute Sub-Batch Drop (150-300 IDs)</text>
+
+                <line x1="940" y1="605" x2="778" y2="605" stroke="#34d399" stroke-width="2" marker-end="url(#seq-arrow-green)"/>
+                <text x="855" y="598" fill="#cbd5e1" font-size="11" text-anchor="middle">12. Delete SQS Message Upon Full Chunk Completion</text>
+
+                <line x1="940" y1="650" x2="263" y2="650" stroke="#fbbf24" stroke-width="2" marker-end="url(#seq-arrow-amber)"/>
+                <text x="600" y="643" fill="#cbd5e1" font-size="11" text-anchor="middle">13. Atomic Increment PurgedVertices/Edges &amp; Emit CloudWatch EMF Telemetry</text>
+
+                <line x1="90" y1="685" x2="247" y2="685" stroke="#38bdf8" stroke-width="2" marker-end="url(#seq-arrow)"/>
+                <text x="170" y="678" fill="#34d399" font-size="11" font-weight="bold" text-anchor="middle">14. Mark Run COMPLETED</text>
+            </svg>
+            <div class="diagram-caption">Figure 2: Sequence Lifecycle — Decoupled Clone Discovery, Immediate Clone Teardown, and Health-Checked Execution</div>
+        </div>
+    </section>
+
+    <!-- SECTION 5: ADAPTIVE BACKPRESSURE & RATE CONTROL -->
+    <section>
+        <h2>5. Adaptive Database Health &amp; Backpressure Control Algorithm</h2>
+        <p>
+            Deleting vertices in Amazon Neptune requires removing both the vertex properties and all incident in/out edges. Large unthrottled deletes cause lock contention (`ConcurrentModificationException`) and grow the MVCC `UndoLogListSize`, which degrades read latency for production clients. The Execution Worker implements an <strong>Additive-Increase / Multiplicative-Decrease (AIMD)</strong> concurrency controller coupled with a token-bucket rate limiter that polls CloudWatch every 30 seconds.
+        </p>
+
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Monitored Neptune CloudWatch Signals</h3>
+                    <span class="badge blue">30s Polling Interval</span>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Metric Name</th>
+                            <th>Green (Scale Up)</th>
+                            <th>Yellow (Throttle)</th>
+                            <th>Red (Circuit Break)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>CPUUtilization</code></td>
+                            <td>&lt; 45%</td>
+                            <td>45% – 70%</td>
+                            <td>&gt; 70%</td>
+                        </tr>
+                        <tr>
+                            <td><code>MainRequestQueuePendingRequests</code></td>
+                            <td>0</td>
+                            <td>1 – 5</td>
+                            <td>&gt; 5</td>
+                        </tr>
+                        <tr>
+                            <td><code>UndoLogListSize</code></td>
+                            <td>&lt; 250,000</td>
+                            <td>250k – 1M</td>
+                            <td>&gt; 1,000,000</td>
+                        </tr>
+                        <tr>
+                            <td><code>NumTxConflictErrors</code> (CME)</td>
+                            <td>0 / min</td>
+                            <td>1 – 3 / min</td>
+                            <td>&gt; 3 / min</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0;">
+                    *Note: Deleting an edge (`g.E(idList).drop()`) before dropping orphan vertices (`g.V(idList).drop()`) prevents massive single-transaction lock footprints on supernode vertices.
+                </p>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>AIMD Backpressure State Machine</h3>
+                    <span class="badge amber">Execution Worker Logic</span>
+                </div>
+                <pre><code>// Executed every 30s by background health-monitor thread
+HealthStatus status = pollNeptuneCloudWatchMetrics(clusterId);
+
+if (status == HealthStatus.GREEN) {
+    // Additive Increase: slowly step up throughput
+    currentBatchSize = Math.min(maxBatchSize, currentBatchSize + 50);
+    activeWorkers    = Math.min(maxWorkers, activeWorkers + 1);
+    interBatchDelay  = Math.max(20, interBatchDelay - 25); // ms
+} 
+else if (status == HealthStatus.YELLOW) {
+    // Multiplicative Decrease: shed load immediately
+    currentBatchSize = Math.max(50, currentBatchSize / 2);
+    activeWorkers    = Math.max(1, activeWorkers / 2);
+    interBatchDelay  = Math.min(2000, interBatchDelay * 2);
+} 
+else if (status == HealthStatus.RED) {
+    // Circuit Breaker: pause mutations, keep SQS lease alive
+    pauseExecutionLoop(Duration.ofSeconds(60));
+    emitMetric("CircuitBreakerTripped", 1, tenantId);
+}</code></pre>
+            </div>
+        </div>
+
+        <div class="callout emerald">
+            <div class="callout-title">Handling the Day-1 Multi-Million Backlog vs. Ongoing Weekly Runs</div>
+            <p style="margin-bottom:0;">
+                Because Discovery writes immutable manifest chunks to S3 and enqueues pointers into SQS (with a 14-day retention period), you can safely configure a <strong>Max Execution Window</strong> per tenant in DynamoDB (e.g., 6 hours during Sunday off-peak). If the Day-1 backlog discovers 25 million records and only 8 million are purged within the Sunday off-peak window while maintaining <code>CPUUtilization &lt; 50%</code>, the worker cleanly exits when the maintenance window closes. The remaining 17 million IDs remain safely queued in SQS/S3 and can be drained on subsequent nights without re-running Discovery.
+            </p>
+        </div>
+    </section>
+
+    <!-- SECTION 6: DYNAMODB DATA MODEL -->
+    <section>
+        <h2>6. Multi-Tenant DynamoDB Control &amp; Ledger Schemas</h2>
+        <p>
+            A single-table or dual-table DynamoDB design stores both static tenant configuration (driving the Step Functions fan-out) and real-time operational state for every weekly run.
+        </p>
+
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Table 1: <code>NeptuneTenantPurgeConfig</code></h3>
+                    <span class="badge blue">PK: TenantId</span>
+                </div>
+                <pre><code>{
+  "TenantId": "tenant-eu-fin-042",
+  "IsEnabled": true,
+  "SourceClusterIdentifier": "neptune-prod-tenant-042",
+  "WriterEndpoint": "neptune-prod-042.cluster-xyz.eu-west-1.neptune.amazonaws.com",
+  "CloneInstanceClass": "db.r6g.xlarge",
+  "QueryLanguage": "Gremlin",
+  "DiscoveryRules": [
+    {
+      "EntityType": "EDGE",
+      "Label": "SESSION_EVENT",
+      "RetentionDays": 90,
+      "TimestampProperty": "expiresAtEpoch"
+    },
+    {
+      "EntityType": "VERTEX",
+      "Label": "AuditTrace",
+      "RetentionDays": 180,
+      "TimestampProperty": "createdAtEpoch"
+    }
+  ],
+  "ThrottlePolicy": {
+    "InitialBatchSize": 200,
+    "MaxBatchSize": 500,
+    "MaxConcurrency": 4,
+    "MaxCpuThresholdPct": 65.0,
+    "MaxPendingQueueDepth": 3,
+    "MaxUndoLogSize": 500000,
+    "MaintenanceWindowMaxMinutes": 360
+  }
+}</code></pre>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>Table 2: <code>NeptunePurgeRunLedger</code></h3>
+                    <span class="badge emerald">PK: TenantId | SK: RunId</span>
+                </div>
+                <pre><code>{
+  "TenantId": "tenant-eu-fin-042",
+  "RunId": "2026-W47-20261122T010000Z",
+  "RunStatus": "COMPLETED",
+  "DiscoveryPhase": {
+    "CloneClusterId": "neptune-clone-042-2026w47",
+    "CloneCreatedAt": "2026-11-22T01:06:12Z",
+    "CloneDestroyedAt": "2026-11-22T01:28:45Z",
+    "DiscoveredEdges": 4820150,
+    "DiscoveredVertices": 1105400,
+    "ManifestS3Prefix": "s3://neptune-purge-manifests/tenant-eu-fin-042/2026-W47/",
+    "TotalChunksEnqueued": 1186
+  },
+  "ExecutionPhase": {
+    "StartedAt": "2026-11-22T01:29:00Z",
+    "CompletedAt": "2026-11-22T03:14:22Z",
+    "PurgedEdges": 4820150,
+    "PurgedVertices": 1105400,
+    "FailedIdsCount": 0,
+    "CircuitBreakerTrips": 2,
+    "AvgBatchLatencyMs": 48.4
+  }
+}</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION 7: OBSERVABILITY & METRICS -->
+    <section>
+        <h2>7. Observability: Tracking Discovered vs. Purged Metrics</h2>
+        <p>
+            To provide full operational visibility across all tenants without incurring high CloudWatch `PutMetricData` API bills, both the Discovery and Execution Batch containers emit structured JSON logs using the <strong>CloudWatch Embedded Metric Format (EMF)</strong> under the custom namespace <code>NeptunePurge/MultiTenant</code>.
+        </p>
+
+        <div class="grid-3">
+            <div class="card">
+                <div class="card-header">
+                    <h3>1. Progress &amp; Delta Metrics</h3>
+                </div>
+                <ul>
+                    <li><code>RecordsDiscovered</code> (Dimensions: <code>TenantId</code>, <code>EntityType</code>)</li>
+                    <li><code>RecordsPurged</code> (Dimensions: <code>TenantId</code>, <code>EntityType</code>)</li>
+                    <li><code>PurgeCompletionRatio</code>: Calculated via Metric Math <code>(RecordsPurged / RecordsDiscovered) * 100</code></li>
+                    <li><code>RemainingBacklogRecords</code>: Tracked via SQS <code>ApproximateNumberOfMessagesVisible * 5000</code></li>
+                </ul>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>2. Health &amp; Throttle Telemetry</h3>
+                </div>
+                <ul>
+                    <li><code>BatchDeleteLatencyMs</code> (p50, p95, p99)</li>
+                    <li><code>ActiveBatchSize</code> &amp; <code>ActiveWorkerThreads</code> (shows AIMD adaptation in real time)</li>
+                    <li><code>ThrottleBackoffEvents</code> &amp; <code>CircuitBreakerPausedSeconds</code></li>
+                    <li><code>ConcurrentModificationRetries</code> (CME count per tenant)</li>
+                </ul>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>3. Cost &amp; Safety Guardrails</h3>
+                </div>
+                <ul>
+                    <li><strong>Orphan Clone Reaper:</strong> A Step Functions <code>Catch</code> block + fallback EventBridge rule ensures any clone tagged <code>Purpose=NeptunePurgeDiscovery</code> older than 4 hours is force-deleted.</li>
+                    <li><strong>DLQ Alerting:</strong> CloudWatch Alarm triggers if any chunk fails 3 times and lands in <code>NeptunePurgeChunkDLQ</code>.</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+</body>
+</html>
