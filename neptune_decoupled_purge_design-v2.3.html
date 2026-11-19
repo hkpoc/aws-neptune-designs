@@ -113,21 +113,22 @@
     </header>
 
     <div class="callout rose" style="margin-top:0;">
-        <div class="callout-title">What changed in v2.3: per-tenant KMS keys</div>
+        <div class="callout-title">What changed in v2.3: per-tenant KMS keys and soft-delete edge purge</div>
         <p style="margin-bottom:0.5rem;">Some tenants encrypt their resources with their own customer managed KMS key, and some of those keys use imported (BYOK) key material. v2.3 supports this with the following deployment assumptions:</p>
         <ul style="margin-bottom:0;">
+            <li><strong>Edges only, soft-deleted only:</strong> the engine drops only edges whose soft-delete property is <code>isDeleted=true</code>, and re-checks that property in the same query that drops the edge. Vertices are never dropped. Timestamp and retention rules, the vertex phase, the edge/vertex barrier and the vertex queue are removed.</li>
             <li><strong>One account:</strong> tenant clusters, tenant keys and the purge engine all live in the same AWS account and Region. Neptune doesn't support cross-account cloning, so this assumption is required.</li>
             <li><strong>Tenant keys mean dedicated clusters:</strong> a tenant with its own key (<code>EncryptionMode=TENANT_KEY</code>) always has its own cluster. Shared clusters use the platform key (<code>PLATFORM_KEY</code>).</li>
             <li><strong>Tenant-scoped data:</strong> S3 manifests, checkpoints and Athena results are encrypted with the tenant's key. SQS, DynamoDB, CloudWatch Logs and Step Functions hold only anonymized element IDs, counts and references, so they use the platform key.</li>
         </ul>
-        <p class="muted" style="margin:0.5rem 0 0;">Changes: header, 1 (preflight and scope), Figures 1–2, 4.1 (lifecycle), new section 6 (encryption boundary, key checks, IAM), 7 (config and ledger fields), 8 (key alarms and reaper), 9 (sources).</p>
+        <p class="muted" style="margin:0.5rem 0 0;">Changes: header, 1 (preflight, scope, edges only), 2, Figures 1–2, 4.1 (lifecycle, single phase), 5 (edge-only notes, 5.4 soft-delete check), new section 6 (encryption boundary, key checks, IAM), 7 (purge rule, config and ledger fields), 8 (metrics, key alarms and reaper), 9 (sources).</p>
     </div>
 
     <!-- SECTION 1 -->
     <section>
         <h2>1. Architectural Context &amp; Neptune Isolation Mechanics</h2>
         <p>
-            Purging millions of vertices and edges from live multi-tenant Amazon Neptune clusters (both <strong>Provisioned</strong> and <strong>Neptune Serverless</strong>) carries three operational risks:
+            Purging millions of soft-deleted edges from live multi-tenant Amazon Neptune clusters (both <strong>Provisioned</strong> and <strong>Neptune Serverless</strong>) carries three operational risks (the engine drops only <strong>edges</strong> marked <code>isDeleted=true</code> and never drops vertices):
             <strong>(1) Discovery traversal overhead</strong>: deep graph traversals evict warm buffer-cache pages and spike read I/O on production instances.
             <strong>(2) Write amplification &amp; undo-log growth</strong>: unthrottled batch <code>drop()</code> mutations flood the writer's request queue and inflate <code>UndoLogListSize</code>, which only the writer can purge.
             <strong>(3) Serverless auto-scaling cost runaway</strong>: unthrottled writes push a Serverless cluster up to its configured <code>MaxCapacity</code> (anywhere from 1.0 to 128.0 NCUs).
@@ -155,7 +156,7 @@
         <div class="grid-3">
             <div class="card">
                 <div class="card-header"><h3>Decoupled Discovery</h3><span class="tag-pill tag-high">Zero Prod Impact</span></div>
-                <p>Creates an ephemeral single-instance clone per tenant (a fixed Provisioned class, or <code>db.serverless</code> with its own <code>ServerlessV2ScalingConfiguration</code>). Streams tenant-filtered candidate vertex and edge IDs, plus the eligibility metadata used, with cursor-paginated queries to S3 manifest chunks (<code>JSONL.gz</code>, 5,000 IDs per chunk), checkpointing the cursor so a Spot interruption can resume. Deletes the clone as soon as the scan finishes.</p>
+                <p>Creates an ephemeral single-instance clone per tenant (a fixed Provisioned class, or <code>db.serverless</code> with its own <code>ServerlessV2ScalingConfiguration</code>). Streams the IDs of tenant-filtered edges with <code>isDeleted=true</code> with cursor-paginated queries to S3 manifest chunks (<code>JSONL.gz</code>, 5,000 IDs per chunk), checkpointing the cursor so a Spot interruption can resume. Deletes the clone as soon as the scan finishes.</p>
             </div>
             <div class="card">
                 <div class="card-header"><h3>Elastic Scale (Millions to Thousands)</h3><span class="tag-pill tag-high">Scale-to-Zero</span></div>
@@ -208,7 +209,7 @@
                 <tr>
                     <td><strong>Multi-Tenant Fan-out</strong></td>
                     <td><code>aws-sdk:dynamodb:query</code> → Map state. (Distributed Map <code>ItemReader</code> doesn't read DynamoDB.)</td>
-                    <td>Paginated <code>aws-sdk:dynamodb:query</code> on <code>TenantConfig</code> → Map state (with <code>MaxConcurrency</code>). Each tenant run acquires a <strong>per-source-cluster lease</strong> and a run lease, then submits isolated Batch jobs that read edge and vertex phase queues.</td>
+                    <td>Paginated <code>aws-sdk:dynamodb:query</code> on <code>TenantConfig</code> → Map state (with <code>MaxConcurrency</code>). Each tenant run acquires a <strong>per-source-cluster lease</strong> and a run lease, then submits isolated Batch jobs that read the edge chunk queue.</td>
                     <td>Needs a custom driver to iterate tenant VPC endpoints.</td>
                     <td>Needs a custom operator or Argo Workflows for the Neptune clone lifecycle.</td>
                 </tr>
@@ -294,7 +295,7 @@
 
                 <rect x="330" y="385" width="225" height="95" rx="8" fill="#1e293b" stroke="#fbbf24" stroke-width="2"/>
                 <text x="442" y="413" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">Amazon SQS + DLQ</text>
-                <text x="442" y="433" fill="#fbbf24" font-size="12" text-anchor="middle">Edge / Vertex Phase Queues</text>
+                <text x="442" y="433" fill="#fbbf24" font-size="12" text-anchor="middle">Edge Chunk Queue</text>
                 <text x="442" y="451" fill="#94a3b8" font-size="10" text-anchor="middle">14d • pointers only • platform key</text>
                 <text x="442" y="466" fill="#94a3b8" font-size="10" text-anchor="middle">maxReceiveCount = 3 → DLQ</text>
 
@@ -403,13 +404,13 @@
                 <rect x="40" y="425" width="1135" height="315" rx="6" fill="rgba(251,191,36,0.05)" stroke="#d97706" stroke-dasharray="3,3"/>
                 <text x="55" y="445" fill="#fbbf24" font-size="11" font-weight="bold">PHASE 2: METERED EXECUTION LOOP (PROVISIONED &amp; SERVERLESS BACKPRESSURE)</text>
                 <line x1="90" y1="470" x2="932" y2="470" stroke="#fbbf24" stroke-width="2" marker-end="url(#seq-arrow-amber)"/>
-                <text x="510" y="463" fill="#cbd5e1" font-size="11" text-anchor="middle">8. submitJob.sync: Edge phase → barrier → Vertex phase</text>
+                <text x="510" y="463" fill="#cbd5e1" font-size="11" text-anchor="middle">8. submitJob.sync: Executor (edges only, single phase)</text>
                 <line x1="940" y1="510" x2="778" y2="510" stroke="#fbbf24" stroke-width="2" marker-end="url(#seq-arrow-amber)"/>
                 <text x="855" y="503" fill="#cbd5e1" font-size="11" text-anchor="middle">9. Claim chunk + GetObject</text>
                 <line x1="940" y1="555" x2="1104" y2="555" stroke="#38bdf8" stroke-width="2" marker-end="url(#seq-arrow)"/>
                 <text x="1025" y="548" fill="#38bdf8" font-size="11" text-anchor="middle">10. Resolve writer + health</text>
                 <line x1="940" y1="600" x2="1104" y2="600" stroke="#fbbf24" stroke-width="2" marker-end="url(#seq-arrow-amber)"/>
-                <text x="1025" y="593" fill="#fbbf24" font-size="11" text-anchor="middle">11. Revalidate + drop()</text>
+                <text x="1025" y="593" fill="#fbbf24" font-size="11" text-anchor="middle">11. Re-check isDeleted + drop()</text>
                 <line x1="940" y1="645" x2="778" y2="645" stroke="#34d399" stroke-width="2" marker-end="url(#seq-arrow-green)"/>
                 <text x="855" y="638" fill="#cbd5e1" font-size="11" text-anchor="middle">12. Commit ledger → DeleteMessage</text>
                 <line x1="940" y1="690" x2="263" y2="690" stroke="#fbbf24" stroke-width="2" marker-end="url(#seq-arrow-amber)"/>
@@ -423,13 +424,13 @@
         <div class="card">
             <div class="card-header"><h3>4.1 Runtime Lifecycle Contract</h3><span class="badge emerald">Authoritative</span></div>
             <ol style="margin-bottom:0;">
-                <li><strong>Lease and freeze.</strong> Acquire a fenced lease on the source cluster (keyed by cluster resource ID) and a tenant run lease in DynamoDB: conditional put, expiry and heartbeat. Record the rule version, the run cutoff epoch and the resolved KMS key ARN in the run ledger. All later steps use these frozen values.</li>
+                <li><strong>Lease and freeze.</strong> Acquire a fenced lease on the source cluster (keyed by cluster resource ID) and a tenant run lease in DynamoDB: conditional put, expiry and heartbeat. Record the rule version (soft-delete property and value) and the resolved KMS key ARN in the run ledger. All later steps use these frozen values.</li>
                 <li><strong>Key check.</strong> Run the key preflight in 6.2, both before resuming a paused run and before starting a new discovery. If the key isn't usable, start nothing: record a <code>SkipReason</code> and raise the per-tenant key alarm.</li>
                 <li><strong>Resume before discover.</strong> If the tenant has a <code>PAUSED</code> run, resume it from its sealed manifest and chunk ledger first. Rebuild any expired SQS pointers. Start a new discovery only once nothing is outstanding.</li>
                 <li><strong>Clone.</strong> Run the preflight, then restore, poll, create the instance and poll. Verify the clone's endpoint, <code>CloneGroupId</code>, IAM authentication, and that <code>StorageEncrypted=true</code> with the same <code>KmsKeyId</code> as the source, before running discovery.</li>
-                <li><strong>Discover and seal.</strong> Scan with tenant filters and checkpoint the cursor. Write deterministic chunks (<code>EDGE-000001</code>…, <code>VERTEX-000001</code>…) to S3, each encrypted with an explicit <code>SSEKMSKeyId</code> (6.1), and record them in the chunk ledger. Seal the manifest (chunk counts plus a <code>_SEALED</code> object) only after the full scan, then publish SQS pointers. An executor never starts on an unsealed manifest.</li>
+                <li><strong>Discover and seal.</strong> Scan with tenant filters and checkpoint the cursor. Write deterministic edge chunks (<code>EDGE-000001</code>…) to S3, each encrypted with an explicit <code>SSEKMSKeyId</code> (6.1), and record them in the chunk ledger. Seal the manifest (chunk counts plus a <code>_SEALED</code> object) only after the full scan, then publish SQS pointers. An executor never starts on an unsealed manifest.</li>
                 <li><strong>Tear down the clone.</strong> On success or failure (<code>Catch</code>): delete the instance, wait, delete the cluster with <code>SkipFinalSnapshot=true</code>, wait. Persist the cleanup status. The reaper handles aborted executions.</li>
-                <li><strong>Edge phase, barrier, vertex phase.</strong> The vertex phase starts only when every edge chunk is terminal in the chunk ledger. Queue ordering alone isn't a barrier. A chunk's SQS message is deleted only after its ledger commit.</li>
+                <li><strong>Execute (single phase).</strong> Executors drain the edge chunk queue. There's no vertex phase and no barrier. A chunk's SQS message is deleted only after its ledger commit.</li>
                 <li><strong>Window close.</strong> Checkpoint, release the leases and mark the run <code>PAUSED</code>.</li>
                 <li><strong>Key lost mid-run.</strong> If a KMS error shows the tenant key is unusable, stop new writes, mark in-flight batches <code>Uncertain</code>, tear down the clone, release the leases, and mark the run <code>FAILED</code> with <code>FailureReason=TENANT_KEY_UNAVAILABLE</code>. Never retry it automatically (6.2).</li>
                 <li><strong>Complete.</strong> Mark the run <code>COMPLETED</code> only when every chunk is terminal (DLQ chunks resolved, uncertain outcomes reconciled) and clone cleanup is confirmed.</li>
@@ -441,7 +442,7 @@
     <section>
         <h2>5. Adaptive Database Health &amp; Backpressure Control</h2>
         <p>
-            Dropping a vertex in Neptune also removes its properties and every incident edge. Large unthrottled deletes cause <code>ConcurrentModificationException</code> conflicts and grow <code>UndoLogListSize</code>. Only the writer purges the undo log, and delete records take longer to purge than other transaction types. On <strong>Neptune Serverless</strong>, a CPU-only signal falls into an <strong>auto-scaling feedback trap</strong>: Neptune adds NCUs to absorb the purge load, so CPU stays low while billing climbs toward <code>MaxCapacity</code>.
+            Dropping an edge removes the edge and its properties only. Vertices are never dropped, even when a vertex is left with no edges. Large unthrottled deletes cause <code>ConcurrentModificationException</code> conflicts and grow <code>UndoLogListSize</code>. Only the writer purges the undo log, and delete records take longer to purge than other transaction types. On <strong>Neptune Serverless</strong>, a CPU-only signal falls into an <strong>auto-scaling feedback trap</strong>: Neptune adds NCUs to absorb the purge load, so CPU stays low while billing climbs toward <code>MaxCapacity</code>.
         </p>
 
         <div class="callout indigo">
@@ -471,7 +472,7 @@
                     </tbody>
                 </table>
                 </div>
-                <p class="muted" style="margin-bottom:0;">The 45%/70% CPU limits are design choices; the Neptune console draws its warning line at 75%. Neptune publishes only non-zero values, so a missing queue or undo-log datapoint means 0. <code>CPUUtilization</code> is always published, so a missing CPU datapoint means telemetry is stale, which is Red. Dropping edges before their vertices keeps each transaction smaller around supernodes. It needs the phase barrier in 4.1, and vertex deletes still apply the relationship policy in 5.4.</p>
+                <p class="muted" style="margin-bottom:0;">The 45%/70% CPU limits are design choices; the Neptune console draws its warning line at 75%. Neptune publishes only non-zero values, so a missing queue or undo-log datapoint means 0. <code>CPUUtilization</code> is always published, so a missing CPU datapoint means telemetry is stale, which is Red.</p>
             </div>
 
             <div class="card">
@@ -547,7 +548,7 @@ switch (status) {
 }
 
 // Batch size is bounded separately; AIMD does not adapt it
-batchSize = Math.min(policy.MaxBatchSize, degreeAwareLimit(chunk));    // smaller for high-degree vertices
+batchSize = policy.MaxBatchSize;                                       // edge drops: no degree-aware sizing needed
 if (writer.isServerless() &amp;&amp; cw.bufferCacheHitRatio &lt; policy.MinBufferCacheHitRatioPct)
     batchSize = Math.min(batchSize, 150);</code></pre>
         </div>
@@ -561,31 +562,26 @@ if (writer.isServerless() &amp;&amp; cw.bufferCacheHitRatio &lt; policy.MinBuffe
 
         <div class="card">
             <div class="card-header"><h3>5.4 Live-Data Correctness: Revalidate Before Delete</h3><span class="badge rose">Safety</span></div>
-            <p>The clone is a point-in-time candidate list, not authority to delete. Between the snapshot and the delete, a record can be renewed, relabeled, reassigned or removed by someone else. Every production delete re-applies the rule in the same query, using the cutoff frozen at run start. The example values below are for a run starting 2026-11-22T01:00Z.</p>
-<pre><code>// 1. Classify (read on the current writer, per micro-batch):
+            <p>The clone is a point-in-time candidate list, not authority to delete. Between the snapshot and the delete, an edge can be <strong>restored</strong> (<code>isDeleted</code> set back to <code>false</code>), reassigned or removed by someone else. Every production drop therefore re-checks <code>isDeleted=true</code> and the tenant in the same query, so an edge restored after discovery is never dropped.</p>
+<pre><code>// Discovery (on the clone, streamed with a cursor):
+//      g.E().has('tenantId', T).has('isDeleted', true).id()
+
+// 1. Classify (read on the current writer, per micro-batch):
 //      present  = g.E(ids).id()
-//      eligible = g.E(ids).hasLabel(L).has('tenantId', T).has(P, lt(cutoff)).id()
-// 2. Conditional delete: the predicates are re-applied, so a record renewed after step 1 is never dropped.
-
-// Edge phase. CutoffMode=BEFORE_RUN_CUTOFF: compare the expiry property directly to the frozen cutoff.
-g.E('edge-1', 'edge-2').hasLabel('SESSION_EVENT')
+//      eligible = g.E(ids).has('tenantId', T).has('isDeleted', true).id()
+// 2. Conditional drop: the soft-delete check is in the same traversal, so an edge
+//    restored (isDeleted=false) after step 1 is never dropped.
+g.E('edge-1', 'edge-2')
  .has('tenantId', 'tenant-042')
- .has('expiresAtEpoch', lt(1795309200))
- .drop()
-
-// Vertex phase (starts only after every edge chunk is terminal).
-// CutoffMode=RETENTION_DAYS: cutoff = runStart − 180 days, applied once at freeze time.
-g.V('vertex-1', 'vertex-2').hasLabel('AuditTrace')
- .has('tenantId', 'tenant-042')
- .has('createdAtEpoch', lt(1779757200))
- .not(bothE())                                  // VertexEdgePolicy=ORPHAN_ONLY
- .drop()
+ .has('isDeleted', true)                        // only soft-deleted edges
+ .drop()                                        // edges only: never g.V(...).drop()
 
 // 3. Uncertain outcome (timeout or connection loss after send): re-read g.E(eligible).id() before retrying.</code></pre>
             <ul style="margin-bottom:0;">
                 <li><strong>Outcomes per ID:</strong> <code>ConfirmedDeleted</code>, <code>AlreadyAbsent</code>, <code>NoLongerEligible</code>, <code>Uncertain</code> or <code>Failed</code>. <code>drop()</code> doesn't return counts, so counts come from the classify step plus confirmation, never from the absence of an error alone.</li>
-                <li><strong>Deleting a vertex removes all its incident edges.</strong> Choose a relationship policy per vertex rule (<code>VertexEdgePolicy</code>). <code>ORPHAN_ONLY</code> is the safe default.</li>
-                <li><strong>Query construction:</strong> pass IDs and values through driver bytecode or parameter binding, never string concatenation. Check that timestamp units (seconds or milliseconds) match the stored property.</li>
+                <li><strong>Vertices are out of scope.</strong> The executor only builds <code>g.E(...)</code> traversals, and a startup guard rejects any rule whose <code>EntityType</code> isn't <code>EDGE</code>. Vertices left with no edges stay in place.</li>
+                <li><strong>Restored edges:</strong> an edge whose <code>isDeleted</code> went back to <code>false</code> after discovery is counted as <code>NoLongerEligible</code> and left untouched.</li>
+                <li><strong>Query construction:</strong> pass IDs and values through driver bytecode or parameter binding, never string concatenation. The soft-delete property name is case-sensitive and must match the stored key exactly (<code>SoftDeleteProperty</code>, e.g. <code>isDeleted</code>). The value must match the stored type: <code>has('isDeleted', true)</code> doesn't match the string <code>"true"</code>. Check one tenant's data before enabling it.</li>
                 <li><strong>Conflicts:</strong> retry <code>ConcurrentModificationException</code> with bounded exponential backoff and jitter, and count retries in <code>ConcurrentModificationRetries</code>. On <code>ReadOnlyViolationException</code> (writer moved), reconnect to the cluster endpoint, mark the in-flight batch <code>Uncertain</code> and resolve it.</li>
             </ul>
         </div>
@@ -609,9 +605,9 @@ g.V('vertex-1', 'vertex-2').hasLabel('AuditTrace')
                     <tbody>
                         <tr><td>Production Neptune cluster</td><td><strong>Tenant key</strong> (<code>TENANT_KEY</code>) or platform key</td><td>Customer graph data</td><td>Set when the cluster is created and immutable afterwards. The preflight checks <code>DescribeDBClusters.KmsKeyId</code> = <code>TenantKmsKeyArn</code>.</td></tr>
                         <tr><td>Discovery clone</td><td><strong>Same key as the source</strong></td><td>Full copy-on-write view of the cluster</td><td>The restore omits <code>KmsKeyId</code>, so the clone inherits the source key. Verified after the restore, before discovery starts.</td></tr>
-                        <tr><td>S3 manifests, <code>_SEALED</code>, checkpoint objects</td><td><strong>Tenant key</strong> (<code>TENANT_KEY</code>) or platform key</td><td>Candidate IDs plus eligibility metadata</td><td>Every <code>PutObject</code> sends <code>SSEKMSKeyId</code> (full key ARN). The bucket policy denies a write without the right key or from an untagged session (6.3). S3 Bucket Keys are on, so KMS calls are made per key rather than per object.</td></tr>
+                        <tr><td>S3 manifests, <code>_SEALED</code>, checkpoint objects</td><td><strong>Tenant key</strong> (<code>TENANT_KEY</code>) or platform key</td><td>Candidate edge IDs</td><td>Every <code>PutObject</code> sends <code>SSEKMSKeyId</code> (full key ARN). The bucket policy denies a write without the right key or from an untagged session (6.3). S3 Bucket Keys are on, so KMS calls are made per key rather than per object.</td></tr>
                         <tr><td>Athena query results</td><td><strong>Tenant key</strong> (<code>TENANT_KEY</code>) or platform key</td><td>Audit query output from manifests</td><td>One Athena workgroup per <code>TENANT_KEY</code> tenant with <code>SSE_KMS</code> = tenant key and <code>EnforceWorkGroupConfiguration=true</code>. Queries run under the tenant-tagged role. The Glue table is partitioned by tenant.</td></tr>
-                        <tr><td>SQS edge/vertex queues + DLQ</td><td>Platform key</td><td>Pointers: <code>RunKey</code>, <code>ChunkId</code>, S3 key</td><td>Classification rule (6.4). Messages never carry IDs or property values.</td></tr>
+                        <tr><td>SQS edge chunk queue + DLQ</td><td>Platform key</td><td>Pointers: <code>RunKey</code>, <code>ChunkId</code>, S3 key</td><td>Classification rule (6.4). Messages never carry IDs or property values.</td></tr>
                         <tr><td>DynamoDB: config, run ledger, chunk ledger, cluster lease</td><td>Platform key</td><td>Config, counts, leases, anonymized cursor</td><td>Classification rule (6.4). <code>LastCursor</code> is an anonymized element ID.</td></tr>
                         <tr><td>CloudWatch Logs (Batch, Step Functions)</td><td>Platform key</td><td>Structured logs and EMF counts</td><td>Neptune driver exceptions are sanitized before logging, because they can echo query text (6.4).</td></tr>
                         <tr><td>Step Functions execution history</td><td>Platform key</td><td>Tenant ID, config references, run state</td><td>The state payload carries references, never manifest contents.</td></tr>
@@ -689,7 +685,7 @@ g.V('vertex-1', 'vertex-2').hasLabel('AuditTrace')
             <p>SQS, DynamoDB, CloudWatch Logs and Step Functions are shared across tenants and use the platform key. That's acceptable only because they never hold customer data:</p>
             <ul style="margin-bottom:0;">
                 <li><strong>Allowed:</strong> tenant ID, run ID, chunk ID, S3 object keys, counts, run timestamps, rule versions, and <strong>anonymized element IDs</strong> (for example <code>LastCursor</code>).</li>
-                <li><strong>Never allowed:</strong> property values, eligibility metadata, manifest lines, or raw query text. Sanitize Neptune driver exceptions (which can echo predicates and IDs) before logging, and keep only the error code and a request ID.</li>
+                <li><strong>Never allowed:</strong> property values, manifest lines, or raw query text. Sanitize Neptune driver exceptions (which can echo predicates and IDs) before logging, and keep only the error code and a request ID.</li>
                 <li><strong>Guardrail:</strong> <code>TenantConfig.ElementIdsAnonymized</code> must be <code>true</code> for the cursor to live in DynamoDB. If a tenant's element IDs are natural keys, the cursor moves to <code>s3://…/{tenant}/{run}/_cursor.json</code> under the tenant key, and DynamoDB stores only that S3 key.</li>
             </ul>
         </div>
@@ -722,12 +718,11 @@ g.V('vertex-1', 'vertex-2').hasLabel('AuditTrace')
   },
   "QueryLanguage": "Gremlin",
   "TenantIdProperty": "tenantId",
-  "DiscoveryRules": [
-    { "EntityType": "EDGE", "Label": "SESSION_EVENT", "TimestampProperty": "expiresAtEpoch",
-      "CutoffMode": "BEFORE_RUN_CUTOFF" },
-    { "EntityType": "VERTEX", "Label": "AuditTrace", "TimestampProperty": "createdAtEpoch",
-      "CutoffMode": "RETENTION_DAYS", "RetentionDays": 180, "VertexEdgePolicy": "ORPHAN_ONLY" }
-  ],
+  "PurgeRule": {                           // edges only; vertices are never dropped
+    "EntityType": "EDGE",                  // the only allowed value
+    "SoftDeleteProperty": "isDeleted",     // case-sensitive, must match the stored key
+    "SoftDeleteValue": true                // boolean; must match the stored type
+  },
   "ThrottlePolicy": {                      // per source cluster; strictest wins if tenants share one
     "InitialBatchSize": 200,
     "MaxBatchSize": 500,
@@ -769,10 +764,7 @@ g.V('vertex-1', 'vertex-2').hasLabel('AuditTrace')
   },
   "QueryLanguage": "Gremlin",
   "TenantIdProperty": "tenantId",
-  "DiscoveryRules": [
-    { "EntityType": "EDGE", "Label": "SESSION_EVENT", "TimestampProperty": "expiresAtEpoch",
-      "CutoffMode": "BEFORE_RUN_CUTOFF" }
-  ],
+  "PurgeRule": { "EntityType": "EDGE", "SoftDeleteProperty": "isDeleted", "SoftDeleteValue": true },
   "ThrottlePolicy": {                      // per source cluster; strictest wins if tenants share one
     "InitialBatchSize": 100,
     "MaxBatchSize": 350,
@@ -808,8 +800,7 @@ g.V('vertex-1', 'vertex-2').hasLabel('AuditTrace')
   "RunStatus": "COMPLETED",                 // or RUNNING / PAUSED / FAILED / SKIPPED
   "SkipReason": null,                       // KEY_MISMATCH / TENANT_KEY_UNAVAILABLE / TENANT_KEY_EXPIRING / ...
   "FailureReason": null,                    // e.g. TENANT_KEY_UNAVAILABLE (never auto-retried)
-  "RuleVersion": "v3",
-  "CutoffEpoch": 1795309200,                // frozen at run start
+  "RuleVersion": "v4",                      // v4 = EDGE / isDeleted = true
   "Encryption": {                           // v2.3: frozen at preflight
     "EncryptionMode": "PLATFORM_KEY",
     "KmsKeyArn": "arn:aws:kms:eu-west-1:111122223333:key/platform-purge-key-id",
@@ -828,18 +819,15 @@ g.V('vertex-1', 'vertex-2').hasLabel('AuditTrace')
     "LastCursor": "edge:~id:9f2c...",              // Spot-interruption resume point
     "SpotInterruptions": 0,
     "DiscoveredEdges": 4820150,
-    "DiscoveredVertices": 1105400,
     "ManifestS3Prefix": "s3://neptune-purge-manifests/tenant-eu-sls-019/2026-W47/",
     "EdgeChunks": 965,
-    "VertexChunks": 222,
-    "TotalChunksEnqueued": 1187,
+    "TotalChunksEnqueued": 965,
     "ManifestSealed": true
   },
   "ExecutionPhase": {
     "StartedAt": "2026-11-22T01:29:00Z",
     "CompletedAt": "2026-11-22T03:14:22Z",
-    "ConfirmedDeletedEdges": 4810022,
-    "ConfirmedDeletedVertices": 1102390,
+    "ConfirmedDeletedEdges": 4807012,
     "AlreadyAbsentIds": 9135,
     "NoLongerEligibleIds": 4003,
     "UncertainOutcomeIds": 0,
@@ -850,7 +838,7 @@ g.V('vertex-1', 'vertex-2').hasLabel('AuditTrace')
     "AvgBatchLatencyMs": 48.4
   }
 }</code></pre>
-            <p class="muted" style="margin-bottom:0;">Chunk math: edges and vertices are chunked separately for the phase barrier. ⌈4,820,150 ÷ 5,000⌉ = 965 edge chunks, plus ⌈1,105,400 ÷ 5,000⌉ = 222 vertex chunks, gives 1,187. Resolved = 4,810,022 + 1,102,390 + 9,135 + 4,003 = 5,925,550 = discovered ✓.</p>
+            <p class="muted" style="margin-bottom:0;">Chunk math: ⌈4,820,150 ÷ 5,000⌉ = 965 edge chunks. Resolved = 4,807,012 deleted + 9,135 already absent + 4,003 no longer eligible (restored) = 4,820,150 = discovered ✓.</p>
         </div>
         <div class="card" style="margin-top:1.5rem;">
             <div class="card-header"><h3>Tables 3 &amp; 4: Chunk Ledger and Cluster Lease</h3><span class="badge emerald">Exactly-Once Accounting</span></div>
@@ -894,12 +882,12 @@ g.V('vertex-1', 'vertex-2').hasLabel('AuditTrace')
     <!-- SECTION 8 -->
     <section>
         <h2>8. Observability: Discovered vs. Purged</h2>
-        <p>Both containers write structured JSON logs in <strong>CloudWatch Embedded Metric Format (EMF)</strong> under the namespace <code>NeptunePurge/MultiTenant</code>. This avoids <code>PutMetricData</code> API calls, but each unique metric and dimension combination is still billed as a custom metric. Keep dimensions to <code>TenantId</code> and <code>EntityType</code>.</p>
+        <p>Both containers write structured JSON logs in <strong>CloudWatch Embedded Metric Format (EMF)</strong> under the namespace <code>NeptunePurge/MultiTenant</code>. This avoids <code>PutMetricData</code> API calls, but each unique metric and dimension combination is still billed as a custom metric. Keep dimensions to <code>TenantId</code> (every purged record is an edge).</p>
         <div class="grid-3">
             <div class="card">
                 <div class="card-header"><h3>1. Progress Metrics</h3></div>
                 <ul>
-                    <li><code>RecordsDiscovered</code>, <code>RecordsDeleted</code>, <code>RecordsAlreadyAbsent</code>, <code>RecordsNoLongerEligible</code>, <code>RecordsUncertain</code> (<code>TenantId</code>, <code>EntityType</code>)</li>
+                    <li><code>RecordsDiscovered</code>, <code>RecordsDeleted</code>, <code>RecordsAlreadyAbsent</code>, <code>RecordsNoLongerEligible</code>, <code>RecordsUncertain</code> (<code>TenantId</code>)</li>
                     <li><code>PurgeCompletionRatio</code>: a dashboard estimate from metric math over aligned periods. Exact per-run figures come from the run ledger: (Deleted + AlreadyAbsent + NoLongerEligible) ÷ Discovered.</li>
                     <li><code>RemainingBacklogRecords</code> ≈ (<code>ApproximateNumberOfMessagesVisible</code> + <code>ApproximateNumberOfMessagesNotVisible</code>) × 5,000. Both SQS metrics are approximate. The exact backlog is the sealed manifest totals minus terminal outcomes in the chunk ledger.</li>
                 </ul>

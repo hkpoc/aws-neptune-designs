@@ -119,6 +119,7 @@
             <li><strong>Step Functions</strong> gets <code>kms:DescribeKey</code> and a conditioned <code>kms:CreateGrant</code>. The ASL adds the key preflight, skip states, the clone key check and the <code>inaccessible-encryption-credentials</code> branch.</li>
             <li><strong>Athena:</strong> a results bucket, one workgroup per <code>TENANT_KEY</code> tenant that enforces the tenant key, and a tenant-tagged audit role.</li>
             <li><strong>Batch:</strong> an explicit KMS-encrypted log group, exit code 78 for key loss (never retried), and the tenant-data role ARN passed in the environment.</li>
+            <li><strong>Edges only (soft delete):</strong> the vertex queue is removed, leaving one edge chunk queue and the DLQ. Jobs get a frozen <code>RULE_VERSION</code> (edges with <code>isDeleted=true</code>) instead of <code>CUTOFF_EPOCH</code>. IAM can't limit <code>DeleteDataViaQuery</code> to edges, so the executor code enforces edges-only.</li>
             <li><strong>Alarms:</strong> <code>KeyMismatch</code>, <code>CloneStuckKeyUnavailable</code>, and per tenant <code>TenantKeyUnavailable</code> and <code>KeyMaterialHoursRemaining</code>.</li>
             <li><strong>New section 3:</strong> the tenant key-policy statements, which live in the stack that owns the keys.</li>
         </ul>
@@ -145,7 +146,7 @@
                 <tr class="recommended-row"><td>Tenant keys, incl. BYOK (v2.3)</td><td>KMS</td><td><code>aws.kms.Key</code> / <code>aws.kms.ExternalKey</code> (tenant onboarding stack)</td><td>Tagged <code>TenantId</code>; key policy includes the three purge statements (section 3); BYOK <code>validTo</code> is checked by the preflight</td><td>Referenced (other stack)</td></tr>
                 <tr><td>Tenant config, run ledger, chunk ledger, cluster leases</td><td>DynamoDB</td><td><code>aws.dynamodb.Table</code> ×4</td><td><code>PAY_PER_REQUEST</code>; PITR on; <strong>v2.3:</strong> <code>serverSideEncryption.kmsKeyArn</code> = platform key (no customer data, design 6.4)</td><td>IaC</td></tr>
                 <tr><td>Manifest store</td><td>S3</td><td><code>aws.s3.Bucket</code>, <code>BucketServerSideEncryptionConfiguration</code>, <code>BucketPublicAccessBlock</code>, <code>BucketLifecycleConfiguration</code>, <strong><code>BucketPolicy</code></strong></td><td>Default SSE-KMS = platform key (fallback) with Bucket Keys; writers always send <code>SSEKMSKeyId</code>; <strong>v2.3:</strong> bucket policy <code>DenyUntaggedWriters</code>, <code>DenyWrongKmsKey</code>, TLS only</td><td>IaC</td></tr>
-                <tr><td>Edge / vertex phase queues + DLQ</td><td>SQS</td><td><code>aws.sqs.Queue</code> ×3</td><td><code>messageRetentionSeconds: 1209600</code>; <code>maxReceiveCount: 3</code>; <strong>v2.3:</strong> <code>kmsMasterKeyId</code> = platform key (pointers only)</td><td>IaC</td></tr>
+                <tr><td>Edge chunk queue + DLQ</td><td>SQS</td><td><code>aws.sqs.Queue</code> ×2</td><td><code>messageRetentionSeconds: 1209600</code>; <code>maxReceiveCount: 3</code>; <strong>v2.3:</strong> <code>kmsMasterKeyId</code> = platform key (pointers only)</td><td>IaC</td></tr>
                 <tr><td>Discovery compute</td><td>Batch on Fargate Spot</td><td><code>aws.batch.ComputeEnvironment</code>, <code>aws.batch.JobQueue</code>, <code>aws.batch.JobDefinition</code></td><td><code>FARGATE_SPOT</code>; <code>X86_64</code>; retry on Spot reclaim only; <strong>exit 78 = key loss → EXIT</strong>; <code>attemptDurationSeconds: 21600</code>; read-only job role</td><td>IaC</td></tr>
                 <tr><td>Execution compute</td><td>Batch on Fargate</td><td>Same three types</td><td><code>FARGATE</code>; timeout ≥ maintenance window; job role scoped to production cluster resource IDs</td><td>IaC</td></tr>
                 <tr><td>Container logs (v2.3)</td><td>CloudWatch Logs</td><td><code>aws.cloudwatch.LogGroup</code></td><td>Explicit <code>awslogs-group</code> with <code>kmsKeyId</code> = platform key; sanitized logs only (design 6.4)</td><td>IaC</td></tr>
@@ -166,7 +167,7 @@
             <ul style="margin-bottom:0;">
                 <li><strong>Control plane:</strong> Neptune management APIs (restore, create, delete, describe) are authorized with <code>rds:*</code> actions. Delete actions are limited to clone-named ARNs. <strong>v2.3:</strong> <code>kms:DescribeKey</code> for the preflight, and <code>kms:CreateGrant</code> only with <code>kms:ViaService=rds.&lt;region&gt;</code> and <code>kms:GrantIsForAWSResource=true</code>, which is what Neptune needs to restore an encrypted cluster. The tenant key policy must allow the same actions.</li>
                 <li><strong>Discovery role:</strong> <code>neptune-db:ReadDataViaQuery</code> only, plus SQS/DynamoDB and the platform key via those services. It can only reach the clone because of the clone security group.</li>
-                <li><strong>Executor role:</strong> <code>ReadDataViaQuery</code>, <code>DeleteDataViaQuery</code> and <code>GetQueryStatus</code> on the configured production resource IDs only. Graph deletes need no KMS permissions.</li>
+                <li><strong>Executor role:</strong> <code>ReadDataViaQuery</code>, <code>DeleteDataViaQuery</code> and <code>GetQueryStatus</code> on the configured production resource IDs only. Graph deletes need no KMS permissions. <code>DeleteDataViaQuery</code> can't be limited to edges or to a property value, so the executor only issues <code>g.E(ids).has('tenantId',T).has('isDeleted',true).drop()</code> and rejects any non-<code>EDGE</code> rule at startup.</li>
                 <li><strong>Tenant-data role (v2.3):</strong> all manifest reads and writes. The trust policy requires exactly the <code>TenantId</code> and <code>TenantKmsKeyArn</code> tags. Role chaining caps sessions at 1h, so containers use an auto-refreshing STS credentials provider. The tags stop cross-tenant bugs, not compromised code. A BYOK tenant that needs a hard boundary gets its own job definition and job role with the same policies and fixed values.</li>
             </ul>
         </div>
@@ -271,7 +272,7 @@ new aws.s3.BucketPolicy("manifests-policy", {
     })),
 });
 
-// ---------- SQS: edge phase, vertex phase, shared DLQ (pointers only, platform key) ----------
+// ---------- SQS: edge chunk queue + DLQ (pointers only, platform key). Edges only: no vertex queue. ----------
 const FOURTEEN_DAYS = 1_209_600;               // default is 4 days; 14 days is the maximum
 const dlq = new aws.sqs.Queue("chunk-dlq", {
     name: "NeptunePurgeChunkDLQ",
@@ -279,8 +280,8 @@ const dlq = new aws.sqs.Queue("chunk-dlq", {
     kmsMasterKeyId: platformKey.arn,           // v2.3: was sqsManagedSseEnabled
     kmsDataKeyReusePeriodSeconds: 3600,
 });
-const phaseQueue = (phase: "edge" | "vertex") =&gt; new aws.sqs.Queue(`${phase}-queue`, {
-    name: `NeptunePurge${phase === "edge" ? "Edge" : "Vertex"}Queue`,
+const edgeQueue = new aws.sqs.Queue("edge-queue", {
+    name: "NeptunePurgeEdgeQueue",
     messageRetentionSeconds: FOURTEEN_DAYS,
     visibilityTimeoutSeconds: 900,             // heartbeat with ChangeMessageVisibility (max 12h from receipt)
     receiveWaitTimeSeconds: 20,
@@ -288,8 +289,6 @@ const phaseQueue = (phase: "edge" | "vertex") =&gt; new aws.sqs.Queue(`${phase}-
     kmsDataKeyReusePeriodSeconds: 3600,
     redrivePolicy: dlq.arn.apply(arn =&gt; JSON.stringify({ deadLetterTargetArn: arn, maxReceiveCount: 3 })),
 });
-const edgeQueue = phaseQueue("edge");
-const vertexQueue = phaseQueue("vertex");
 
 // ---------- Networking &amp; parameters for the runtime clone ----------
 const discoverySg = new aws.ec2.SecurityGroup("discovery-sg", {
@@ -375,14 +374,14 @@ new aws.iam.RolePolicy("tenant-data-policy", {
 // Discovery: read-only graph access, no delete rights anywhere. No direct S3 access (v2.3).
 new aws.iam.RolePolicy("discovery-policy", {
     role: discoveryRole.id,
-    policy: pulumi.all([edgeQueue.arn, vertexQueue.arn, chunkLedger.arn, runLedger.arn, tenantDataRole.arn,
+    policy: pulumi.all([edgeQueue.arn, chunkLedger.arn, runLedger.arn, tenantDataRole.arn,
                         platformKey.arn, region, accountId])
-        .apply(([eq, vq, cl, rl, td, pk, r, a]) =&gt; JSON.stringify({
+        .apply(([eq, cl, rl, td, pk, r, a]) =&gt; JSON.stringify({
             Version: "2012-10-17",
             Statement: [
                 { Effect: "Allow", Action: ["neptune-db:ReadDataViaQuery"], Resource: `arn:aws:neptune-db:${r}:${a}:*/*` },
                 { Effect: "Allow", Action: ["sts:AssumeRole", "sts:TagSession"], Resource: td },
-                { Effect: "Allow", Action: ["sqs:SendMessage"], Resource: [eq, vq] },
+                { Effect: "Allow", Action: ["sqs:SendMessage"], Resource: eq },
                 { Effect: "Allow", Action: ["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:GetItem"], Resource: [cl, rl] },
                 platformKeyUse(pk, r, ["sqs", "dynamodb"]),
             ],
@@ -390,11 +389,12 @@ new aws.iam.RolePolicy("discovery-policy", {
 });
 
 // Executor: read + delete + query status on PRODUCTION cluster resource IDs only. No direct S3 access (v2.3).
+// Deletes are edge drops gated on isDeleted=true. IAM can't restrict this to edges, so the executor code enforces it.
 new aws.iam.RolePolicy("executor-policy", {
     role: executorRole.id,
-    policy: pulumi.all([edgeQueue.arn, vertexQueue.arn, chunkLedger.arn, runLedger.arn,
+    policy: pulumi.all([edgeQueue.arn, chunkLedger.arn, runLedger.arn,
                         clusterLease.arn, tenantConfig.arn, tenantDataRole.arn, platformKey.arn, region, accountId])
-        .apply(([eq, vq, cl, rl, lt, tc, td, pk, r, a]) =&gt; JSON.stringify({
+        .apply(([eq, cl, rl, lt, tc, td, pk, r, a]) =&gt; JSON.stringify({
             Version: "2012-10-17",
             Statement: [
                 { Effect: "Allow",
@@ -402,7 +402,7 @@ new aws.iam.RolePolicy("executor-policy", {
                   Resource: prodClusterResourceIds.map(id =&gt; `arn:aws:neptune-db:${r}:${a}:${id}/*`) },
                 { Effect: "Allow", Action: ["sts:AssumeRole", "sts:TagSession"], Resource: td },
                 { Effect: "Allow", Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility",
-                                            "sqs:GetQueueAttributes", "sqs:SendMessage"], Resource: [eq, vq] },
+                                            "sqs:GetQueueAttributes", "sqs:SendMessage"], Resource: eq },
                 // TransactWriteItems is authorized per item action (UpdateItem / ConditionCheckItem)
                 { Effect: "Allow", Action: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
                                             "dynamodb:ConditionCheckItem", "dynamodb:Query"], Resource: [cl, rl, lt, tc] },
@@ -558,15 +558,15 @@ new aws.iam.RolePolicy("sfn-policy", {
 
 const render = (file: string) =&gt; pulumi.all([tenantConfig.name, runLedger.name, chunkLedger.name, clusterLease.name,
         discoveryQueue.arn, discoveryJob.arn, executionQueue.arn, executorJob.arn,
-        cloneSubnets.name, cloneSg.id, cloneParams.name, edgeQueue.url, vertexQueue.url, platformKey.arn])
-    .apply(([tc, rl, cl, lt, dq, dj, eq, ej, sn, sg, pg, equ, vqu, pk]) =&gt; fs.readFileSync(file, "utf8")
+        cloneSubnets.name, cloneSg.id, cloneParams.name, edgeQueue.url, platformKey.arn])
+    .apply(([tc, rl, cl, lt, dq, dj, eq, ej, sn, sg, pg, equ, pk]) =&gt; fs.readFileSync(file, "utf8")
         .replace(/\$\{TenantTable\}/g, tc).replace(/\$\{LedgerTable\}/g, rl)
         .replace(/\$\{ChunkTable\}/g, cl).replace(/\$\{LeaseTable\}/g, lt)
         .replace(/\$\{DiscoveryQueue\}/g, dq).replace(/\$\{DiscoveryJobDef\}/g, dj)
         .replace(/\$\{ExecutionQueue\}/g, eq).replace(/\$\{ExecutorJobDef\}/g, ej)
         .replace(/\$\{CloneSubnetGroup\}/g, sn).replace(/\$\{CloneSg\}/g, sg)
         .replace(/\$\{CloneParamGroup\}/g, pg)
-        .replace(/\$\{EdgeQueueUrl\}/g, equ).replace(/\$\{VertexQueueUrl\}/g, vqu)
+        .replace(/\$\{EdgeQueueUrl\}/g, equ)
         .replace(/\$\{PlatformKeyArn\}/g, pk));
 
 const stateMachine = (name: string, file: string) =&gt; new aws.sfn.StateMachine(name, {
@@ -640,7 +640,6 @@ export const orchestratorArn = purgeSm.arn;
 export const reaperArn = reaperSm.arn;
 export const manifestBucket = manifests.bucket;
 export const edgeQueueUrl = edgeQueue.url;
-export const vertexQueueUrl = vertexQueue.url;
 export const platformKeyArn = platformKey.arn;
 // v2.3: consumed by the tenant onboarding stack to write tenant key policies (section 3)
 export const purgeSfnRoleArn = sfnRole.arn;
@@ -807,7 +806,7 @@ export const platformWorkgroupName = platformWorkgroup.name;</code></pre>
     "ContainerOverrides": { "Environment": [
       { "Name": "CLONE_ENDPOINT", "Value.$": "$.cloneEndpoint" },
       { "Name": "RUN_KEY", "Value.$": "$.runKey" },
-      { "Name": "CUTOFF_EPOCH", "Value.$": "States.Format('{}', $.cutoffEpoch)" },
+      { "Name": "RULE_VERSION", "Value.$": "$.ruleVersion" },          // frozen: EDGE where isDeleted = true
       // v2.3: session tags for the tenant-data role, and the SSEKMSKeyId for every PutObject
       { "Name": "TENANT_ID", "Value.$": "$.tenant.TenantId" },
       { "Name": "TENANT_KMS_KEY_ARN", "Value.$": "$.manifestKeyArn" }
