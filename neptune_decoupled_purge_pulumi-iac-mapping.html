@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neptune Purge Pulumi IaC</title>
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --bg-card: #1e293b;
+            --bg-card-alt: #162032;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-blue: #38bdf8;
+            --accent-indigo: #818cf8;
+            --accent-emerald: #34d399;
+            --accent-amber: #fbbf24;
+            --accent-rose: #fb7185;
+            --border-color: #334155;
+            --code-bg: #0b1120;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            line-height: 1.6;
+            padding: 2rem 3rem;
+            max-width: 1440px;
+            margin: 0 auto;
+        }
+        @media (max-width: 720px) { body { padding: 1rem 16px; } }
+        header {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 1.75rem; margin-bottom: 2.5rem;
+            display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1rem;
+        }
+        .title-group h1 { font-size: 2.1rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.4rem; }
+        .title-group p { color: var(--text-muted); font-size: 1.05rem; }
+        .meta-badges { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+        .badge {
+            padding: 0.35rem 0.85rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.05em; background: var(--bg-card); border: 1px solid var(--border-color);
+        }
+        .badge.blue { color: var(--accent-blue); border-color: rgba(56,189,248,0.3); }
+        .badge.emerald { color: var(--accent-emerald); border-color: rgba(52,211,153,0.3); }
+        .badge.amber { color: var(--accent-amber); border-color: rgba(251,191,36,0.3); }
+        .badge.indigo { color: var(--accent-indigo); border-color: rgba(129,140,248,0.3); }
+        .badge.rose { color: var(--accent-rose); border-color: rgba(251,113,133,0.3); }
+        h2 {
+            font-size: 1.5rem; font-weight: 600; color: var(--accent-blue); margin: 2.5rem 0 1.25rem;
+            display: flex; align-items: center; gap: 0.6rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;
+        }
+        h3 { font-size: 1.15rem; font-weight: 600; margin: 1.25rem 0 0.75rem; }
+        p { margin-bottom: 1rem; color: #cbd5e1; }
+        a { color: var(--accent-blue); }
+        .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(450px, 100%), 1fr)); gap: 1.5rem; margin-bottom: 1.5rem; }
+        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 1.5rem; margin-bottom: 1.5rem; }
+        .card { background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 4px 20px rgba(0,0,0,0.25); min-width: 0; }
+        .card-header {
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;
+            padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color); flex-wrap: wrap; gap: 0.5rem;
+        }
+        .card-header h3 { margin: 0; font-size: 1.15rem; }
+        .diagram-container { background-color: var(--code-bg); border: 1px solid var(--border-color); border-radius: 0.75rem; padding: 1.5rem; margin: 1.5rem 0; overflow-x: auto; text-align: center; }
+        .diagram-caption { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.75rem; text-align: center; }
+        .table-wrap { overflow-x: auto; margin: 1.25rem 0; border-radius: 0.75rem; border: 1px solid var(--border-color); }
+        table { width: 100%; border-collapse: collapse; background-color: var(--bg-card); }
+        .card table { border: 1px solid var(--border-color); border-radius: 0.5rem; margin: 0.5rem 0 1rem; }
+        th, td { padding: 0.85rem 1rem; text-align: left; border-bottom: 1px solid var(--border-color); font-size: 0.9rem; vertical-align: top; }
+        th { background-color: var(--bg-card-alt); color: var(--accent-blue); font-weight: 600; text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.04em; }
+        tr:last-child td { border-bottom: none; }
+        tr.recommended-row { background-color: rgba(52,211,153,0.08); border-left: 4px solid var(--accent-emerald); }
+        ul, ol { padding-left: 1.4rem; margin-bottom: 1rem; color: #cbd5e1; }
+        li { margin-bottom: 0.45rem; }
+        code, pre { font-family: "JetBrains Mono", "Fira Code", Consolas, monospace; font-size: 0.85rem; }
+        code { background-color: var(--code-bg); color: var(--accent-amber); padding: 0.15rem 0.4rem; border-radius: 0.25rem; border: 1px solid rgba(255,255,255,0.08); overflow-wrap: anywhere; }
+        pre { background-color: var(--code-bg); color: #e2e8f0; padding: 1.25rem; border-radius: 0.5rem; border: 1px solid var(--border-color); overflow-x: auto; margin: 1rem 0; line-height: 1.5; }
+        pre code { background: none; border: none; padding: 0; color: inherit; overflow-wrap: normal; }
+        .callout { padding: 1.25rem 1.5rem; border-radius: 0.5rem; margin: 1.5rem 0; border-left: 4px solid var(--accent-blue); background-color: rgba(56,189,248,0.08); }
+        .callout.emerald { border-left-color: var(--accent-emerald); background-color: rgba(52,211,153,0.08); }
+        .callout.amber { border-left-color: var(--accent-amber); background-color: rgba(251,191,36,0.08); }
+        .callout.indigo { border-left-color: var(--accent-indigo); background-color: rgba(129,140,248,0.08); }
+        .callout.rose { border-left-color: var(--accent-rose); background-color: rgba(251,113,133,0.08); }
+        .callout-title { font-weight: 700; margin-bottom: 0.4rem; color: var(--text-main); display: flex; align-items: center; gap: 0.5rem; }
+        .tag-pill { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
+        .tag-high { background: rgba(52,211,153,0.15); color: var(--accent-emerald); }
+        .tag-med { background: rgba(251,191,36,0.15); color: var(--accent-amber); }
+        .tag-low { background: rgba(251,113,133,0.15); color: var(--accent-rose); }
+        .tag-info { background: rgba(56,189,248,0.15); color: var(--accent-blue); }
+        .fix { display: inline-block; padding: 0.05rem 0.4rem; margin-left: 0.3rem; border-radius: 0.25rem; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; background: rgba(251,113,133,0.15); color: var(--accent-rose); vertical-align: middle; }
+        del { color: var(--accent-rose); opacity: 0.8; }
+        .muted { color: var(--text-muted); font-size: 0.84rem; }
+        svg { max-width: 100%; height: auto; }
+        .src { font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="title-group">
+            <h1>Neptune Purge Engine — AWS → Pulumi IaC Mapping (v2.2)</h1>
+            <p>Pulumi (TypeScript, <code>@pulumi/aws</code> v7) resources for each AWS component of the v2.2 design</p>
+            <p class="muted" style="margin-bottom:0;">Related: <a href="neptune_decoupled_purge_design-v2.2.html">v2.2 design</a> · <a href="neptune_decoupled_purge_design-v2-review-findings.html">review findings</a></p>
+        </div>
+        <div class="meta-badges">
+            <span class="badge blue">Pulumi IaC</span>
+            <span class="badge emerald">Step Functions + Batch (Fargate) + SQS</span>
+            <span class="badge rose">Least-Privilege Roles</span>
+        </div>
+    </header>
+
+    <section>
+        <h2>AWS → Pulumi IaC Mapping</h2>
+        <p>
+            Long-lived infrastructure is managed by Pulumi (TypeScript, <code>@pulumi/aws</code> v7). The <strong>ephemeral discovery clone is deliberately not a Pulumi resource</strong>. The Classic provider's <code>aws.neptune.Cluster</code> has no point-in-time or copy-on-write restore input (only <code>snapshotIdentifier</code>). Pulumi AWS Native (<code>aws-native.neptune.DbCluster</code>, which maps to <code>AWS::Neptune::DBCluster</code>) does expose <code>restoreType</code>, <code>sourceDbClusterIdentifier</code> and <code>useLatestRestorableTime</code>. Even so, a per-run clone doesn't belong in stack state, and you should never run <code>pulumi up</code> or <code>pulumi destroy</code> for each weekly run. Pulumi provisions everything the clone needs (IAM, subnet group, security group, parameter group). Step Functions creates and deletes the clone at runtime.
+        </p>
+
+        <div class="table-wrap">
+        <table>
+            <thead>
+                <tr><th>Design Component</th><th>AWS Service / API</th><th>Pulumi Resource(s)</th><th>Key Properties</th><th>Lifecycle</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>Weekly trigger, clone reaper</td><td>EventBridge Scheduler</td><td><code>aws.scheduler.Schedule</code> ×2</td><td><code>cron(0 1 ? * SUN *)</code> → orchestrator; <code>rate(1 hour)</code> → reaper state machine</td><td>IaC</td></tr>
+                <tr><td>Control plane, reaper</td><td>Step Functions</td><td><code>aws.sfn.StateMachine</code> ×2, <code>aws.cloudwatch.LogGroup</code></td><td><code>type: "STANDARD"</code> (runs last hours; Express caps at 5 min); <code>loggingConfiguration.level: "ERROR"</code></td><td>IaC</td></tr>
+                <tr><td>Tenant config, run ledger, chunk ledger, cluster leases</td><td>DynamoDB</td><td><code>aws.dynamodb.Table</code> ×4</td><td><code>PAY_PER_REQUEST</code>; PITR on; chunk ledger <code>RunKey</code>/<code>ChunkId</code>; lease table keyed by <code>ClusterResourceId</code> with <code>ttl</code> on <code>ExpiresAt</code></td><td>IaC</td></tr>
+                <tr><td>Manifest store</td><td>S3</td><td><code>aws.s3.Bucket</code>, <code>aws.s3.BucketServerSideEncryptionConfiguration</code>, <code>aws.s3.BucketPublicAccessBlock</code>, <code>aws.s3.BucketLifecycleConfiguration</code></td><td>SSE-KMS; block all public access; tenant prefixes; expire after the audit period (for example 400 days)</td><td>IaC</td></tr>
+                <tr><td>Edge / vertex phase queues + DLQ</td><td>SQS</td><td><code>aws.sqs.Queue</code> ×3</td><td><code>messageRetentionSeconds: 1209600</code> on all three (default 4 days); <code>visibilityTimeoutSeconds: 900</code>; <code>maxReceiveCount: 3</code>; <code>sqsManagedSseEnabled: true</code></td><td>IaC</td></tr>
+                <tr><td>Discovery compute</td><td>Batch on Fargate Spot</td><td><code>aws.batch.ComputeEnvironment</code>, <code>aws.batch.JobQueue</code>, <code>aws.batch.JobDefinition</code></td><td><code>FARGATE_SPOT</code>; <code>cpuArchitecture: "X86_64"</code>; retry on Spot reclaim; <code>attemptDurationSeconds: 21600</code>; <strong>read-only</strong> job role</td><td>IaC</td></tr>
+                <tr><td>Execution compute</td><td>Batch on Fargate</td><td>Same three types</td><td><code>FARGATE</code>; timeout ≥ maintenance window; job role scoped to production cluster resource IDs</td><td>IaC</td></tr>
+                <tr><td>Container images</td><td>ECR</td><td><code>aws.ecr.Repository</code></td><td><code>scanOnPush: true</code>, immutable tags</td><td>IaC</td></tr>
+                <tr><td>Clone networking &amp; params</td><td>Neptune, EC2</td><td><code>aws.neptune.SubnetGroup</code>, <code>aws.ec2.SecurityGroup</code> ×3, <code>aws.neptune.ClusterParameterGroup</code></td><td>Clone SG admits 8182 only from the discovery SG; subnets in the source cluster's AZs; long <code>neptune_query_timeout</code></td><td>IaC</td></tr>
+                <tr><td>Production clusters</td><td>Neptune</td><td><code>aws.neptune.Cluster</code>, <code>aws.neptune.ClusterInstance</code> (usually other stacks)</td><td><code>serverlessV2ScalingConfiguration</code> within 1.0–128.0; <code>iamDatabaseAuthenticationEnabled: true</code>; executor SG added to ingress</td><td>Referenced (<code>StackReference</code> / <code>.get()</code>)</td></tr>
+                <tr class="recommended-row"><td>Ephemeral discovery clone</td><td>Neptune <code>RestoreDBClusterToPointInTime</code> + <code>CreateDBInstance</code></td><td><strong>None</strong> (Step Functions <code>aws-sdk:neptune:*</code> tasks)</td><td><code>RestoreType: "copy-on-write"</code>, <code>UseLatestRestorableTime: true</code>, <code>EnableIamDatabaseAuthentication: true</code>, ownership tags</td><td>Runtime</td></tr>
+                <tr><td>Metrics, dashboards, alarms</td><td>CloudWatch</td><td><code>aws.cloudwatch.Dashboard</code>, <code>aws.cloudwatch.MetricAlarm</code>, <code>aws.cloudwatch.LogGroup</code></td><td><code>treatMissingData: "notBreaching"</code>; alarms on DLQ, circuit breaker and uncertain outcomes</td><td>IaC</td></tr>
+                <tr><td>Manifest audit</td><td>Athena + Glue Data Catalog</td><td><code>aws.athena.Workgroup</code>, <code>aws.glue.CatalogDatabase</code>, <code>aws.glue.CatalogTable</code></td><td>JSON SerDe over <code>JSONL.gz</code>; partition projection on <code>tenant</code>/<code>run</code></td><td>IaC</td></tr>
+                <tr><td>Permissions</td><td>IAM</td><td><code>aws.iam.Role</code> ×6, <code>aws.iam.RolePolicy</code></td><td>Separate discovery and executor job roles (see the note below); Step Functions role limits <code>rds:Delete*</code> to <code>neptune-clone-*</code> ARNs</td><td>IaC</td></tr>
+            </tbody>
+        </table>
+        </div>
+
+        <div class="callout amber">
+            <div class="callout-title">IAM model</div>
+            <ul style="margin-bottom:0;">
+                <li><strong>Control plane:</strong> Neptune management APIs (restore, create, delete, describe) are authorized with <code>rds:*</code> actions. The Step Functions <code>Resource</code> ARN is still <code>arn:aws:states:::aws-sdk:neptune:&lt;action&gt;</code>. Delete actions are limited to clone-named ARNs, so the orchestrator can't delete a production cluster.</li>
+                <li><strong>Discovery role:</strong> <code>neptune-db:ReadDataViaQuery</code> only. The clone's resource ID isn't known until runtime, so the grant is account- and Region-wide. It can only reach clusters whose security group admits the discovery security group, which is the clone SG alone.</li>
+                <li><strong>Executor role:</strong> <code>ReadDataViaQuery</code>, <code>DeleteDataViaQuery</code> and <code>GetQueryStatus</code> on the configured production <code>cluster-XXXX</code> resource IDs only. Requests are SigV4-signed.</li>
+            </ul>
+        </div>
+
+        <h3>1. Pulumi Program (TypeScript, <code>@pulumi/aws</code> v7)</h3>
+<pre><code>import * as pulumi from "@pulumi/pulumi";
+import * as aws from "@pulumi/aws";
+import * as fs from "fs";
+
+const cfg = new pulumi.Config();
+const vpcId = cfg.require("vpcId");
+const privateSubnetIds = cfg.requireObject&lt;string[]&gt;("privateSubnetIds"); // same AZs as the source clusters
+const prodClusterResourceIds = cfg.requireObject&lt;string[]&gt;("prodClusterResourceIds"); // cluster-XXXX
+const region = aws.getRegionOutput().name;
+const accountId = aws.getCallerIdentityOutput().accountId;
+const prefix = "neptune-purge";
+
+// ---------- DynamoDB: config, run ledger, chunk ledger, cluster leases ----------
+const table = (name: string, hashKey: string, rangeKey?: string, ttlAttr?: string) =&gt;
+    new aws.dynamodb.Table(name, {
+        name,
+        billingMode: "PAY_PER_REQUEST",
+        hashKey,
+        rangeKey,
+        attributes: [{ name: hashKey, type: "S" }, ...(rangeKey ? [{ name: rangeKey, type: "S" }] : [])],
+        pointInTimeRecovery: { enabled: true },
+        serverSideEncryption: { enabled: true },
+        ttl: ttlAttr ? { attributeName: ttlAttr, enabled: true } : undefined,
+    });
+const tenantConfig = table("NeptuneTenantPurgeConfig", "TenantId");
+const runLedger    = table("NeptunePurgeRunLedger", "TenantId", "RunId");
+const chunkLedger  = table("NeptunePurgeChunkLedger", "RunKey", "ChunkId");
+const clusterLease = table("NeptunePurgeClusterLease", "ClusterResourceId", undefined, "ExpiresAt");
+
+// ---------- S3 manifest store ----------
+const manifests = new aws.s3.Bucket("manifests", { bucketPrefix: `${prefix}-manifests-` });
+new aws.s3.BucketPublicAccessBlock("manifests-pab", {
+    bucket: manifests.id,
+    blockPublicAcls: true, blockPublicPolicy: true, ignorePublicAcls: true, restrictPublicBuckets: true,
+});
+new aws.s3.BucketServerSideEncryptionConfiguration("manifests-sse", {
+    bucket: manifests.id,
+    rules: [{ applyServerSideEncryptionByDefault: { sseAlgorithm: "aws:kms" }, bucketKeyEnabled: true }],
+});
+new aws.s3.BucketLifecycleConfiguration("manifests-lc", {
+    bucket: manifests.id,
+    rules: [{ id: "expire-manifests", status: "Enabled", filter: {}, expiration: { days: 400 } }],
+});
+
+// ---------- SQS: edge phase, vertex phase, shared DLQ ----------
+const FOURTEEN_DAYS = 1_209_600;               // default is 4 days; 14 days is the maximum
+const dlq = new aws.sqs.Queue("chunk-dlq", {
+    name: "NeptunePurgeChunkDLQ",
+    messageRetentionSeconds: FOURTEEN_DAYS,    // &gt;= source queues (expiry uses original enqueue time)
+    sqsManagedSseEnabled: true,
+});
+const phaseQueue = (phase: "edge" | "vertex") =&gt; new aws.sqs.Queue(`${phase}-queue`, {
+    name: `NeptunePurge${phase === "edge" ? "Edge" : "Vertex"}Queue`,
+    messageRetentionSeconds: FOURTEEN_DAYS,
+    visibilityTimeoutSeconds: 900,             // heartbeat with ChangeMessageVisibility (max 12h from receipt)
+    receiveWaitTimeSeconds: 20,
+    sqsManagedSseEnabled: true,
+    redrivePolicy: dlq.arn.apply(arn =&gt; JSON.stringify({ deadLetterTargetArn: arn, maxReceiveCount: 3 })),
+});
+const edgeQueue = phaseQueue("edge");
+const vertexQueue = phaseQueue("vertex");
+
+// ---------- Networking &amp; parameters for the runtime clone ----------
+const discoverySg = new aws.ec2.SecurityGroup("discovery-sg", {
+    vpcId, description: "Discovery workers",
+    egress: [{ protocol: "-1", fromPort: 0, toPort: 0, cidrBlocks: ["0.0.0.0/0"] }],
+});
+const executorSg = new aws.ec2.SecurityGroup("executor-sg", {
+    vpcId, description: "Purge executors (add to prod cluster SG ingress on 8182)",
+    egress: [{ protocol: "-1", fromPort: 0, toPort: 0, cidrBlocks: ["0.0.0.0/0"] }],
+});
+const cloneSg = new aws.ec2.SecurityGroup("clone-sg", {
+    vpcId, description: "Ephemeral Neptune discovery clones",
+    ingress: [{ protocol: "tcp", fromPort: 8182, toPort: 8182, securityGroups: [discoverySg.id] }],
+});
+const cloneSubnets = new aws.neptune.SubnetGroup("clone-subnets", {
+    name: `${prefix}-clone-subnets`, subnetIds: privateSubnetIds,
+});
+const cloneParams = new aws.neptune.ClusterParameterGroup("clone-params", {
+    name: `${prefix}-clone-params`,
+    family: "neptune1.4",                       // match the source engine family
+    parameters: [{ name: "neptune_query_timeout", value: "3600000" }],
+});
+
+// ---------- ECR ----------
+const repo = new aws.ecr.Repository("purge-images", {
+    name: prefix, imageTagMutability: "IMMUTABLE",
+    imageScanningConfiguration: { scanOnPush: true },
+});
+
+// ---------- IAM ----------
+const assume = (svc: string) =&gt; JSON.stringify({
+    Version: "2012-10-17",
+    Statement: [{ Effect: "Allow", Principal: { Service: svc }, Action: "sts:AssumeRole" }],
+});
+const execRole = new aws.iam.Role("task-exec-role", { assumeRolePolicy: assume("ecs-tasks.amazonaws.com") });
+new aws.iam.RolePolicyAttachment("task-exec-attach", {
+    role: execRole.name,
+    policyArn: "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
+});
+
+// Discovery: read-only graph access, no delete rights anywhere.
+// The clone's resource ID is allocated at runtime, so scope by account/region; network isolation
+// (clone SG admits only discoverySg) limits which clusters the role can actually reach.
+const discoveryRole = new aws.iam.Role("discovery-role", { assumeRolePolicy: assume("ecs-tasks.amazonaws.com") });
+new aws.iam.RolePolicy("discovery-policy", {
+    role: discoveryRole.id,
+    policy: pulumi.all([manifests.arn, edgeQueue.arn, vertexQueue.arn, chunkLedger.arn, runLedger.arn, region, accountId])
+        .apply(([b, eq, vq, cl, rl, r, a]) =&gt; JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+                { Effect: "Allow", Action: ["neptune-db:ReadDataViaQuery"], Resource: `arn:aws:neptune-db:${r}:${a}:*/*` },
+                { Effect: "Allow", Action: ["s3:PutObject"], Resource: `${b}/*` },
+                { Effect: "Allow", Action: ["sqs:SendMessage"], Resource: [eq, vq] },
+                { Effect: "Allow", Action: ["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:GetItem"], Resource: [cl, rl] },
+            ],
+        })),
+});
+
+// Executor: read + delete + query status on PRODUCTION cluster resource IDs only.
+const executorRole = new aws.iam.Role("executor-role", { assumeRolePolicy: assume("ecs-tasks.amazonaws.com") });
+new aws.iam.RolePolicy("executor-policy", {
+    role: executorRole.id,
+    policy: pulumi.all([manifests.arn, edgeQueue.arn, vertexQueue.arn, chunkLedger.arn, runLedger.arn,
+                        clusterLease.arn, tenantConfig.arn, region, accountId])
+        .apply(([b, eq, vq, cl, rl, lt, tc, r, a]) =&gt; JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+                { Effect: "Allow",
+                  Action: ["neptune-db:ReadDataViaQuery", "neptune-db:DeleteDataViaQuery", "neptune-db:GetQueryStatus"],
+                  Resource: prodClusterResourceIds.map(id =&gt; `arn:aws:neptune-db:${r}:${a}:${id}/*`) },
+                { Effect: "Allow", Action: ["s3:GetObject"], Resource: `${b}/*` },
+                { Effect: "Allow", Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility",
+                    "sqs:GetQueueAttributes", "sqs:SendMessage"], Resource: [eq, vq] },
+                // TransactWriteItems is authorized per item action (UpdateItem / ConditionCheckItem)
+                { Effect: "Allow", Action: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
+                    "dynamodb:ConditionCheckItem", "dynamodb:Query"], Resource: [cl, rl, lt, tc] },
+                { Effect: "Allow", Action: ["cloudwatch:GetMetricData", "rds:DescribeDBClusters"], Resource: "*" },
+            ],
+        })),
+});
+
+// ---------- AWS Batch ----------
+const fargateCe = (name: string, type: "FARGATE" | "FARGATE_SPOT", sg: aws.ec2.SecurityGroup) =&gt;
+    new aws.batch.ComputeEnvironment(name, {
+        name: `${prefix}-${name}`,
+        type: "MANAGED",
+        computeResources: { type, maxVcpus: 64, subnets: privateSubnetIds, securityGroupIds: [sg.id] },
+    });
+const spotCe = fargateCe("discovery-spot", "FARGATE_SPOT", discoverySg);
+const odCe = fargateCe("execution-od", "FARGATE", executorSg);
+
+const jobQueue = (name: string, ce: aws.batch.ComputeEnvironment) =&gt; new aws.batch.JobQueue(name, {
+    name: `${prefix}-${name}`, state: "ENABLED", priority: 1,
+    computeEnvironmentOrders: [{ order: 1, computeEnvironment: ce.arn }],
+});
+const discoveryQueue = jobQueue("discovery", spotCe);
+const executionQueue = jobQueue("execution", odCe);
+
+const jobDef = (name: string, tag: string, role: aws.iam.Role, vcpu: string, memMiB: string, timeoutSec: number) =&gt;
+    new aws.batch.JobDefinition(name, {
+        name: `${prefix}-${name}`,
+        type: "container",
+        platformCapabilities: ["FARGATE"],
+        timeout: { attemptDurationSeconds: timeoutSec },
+        retryStrategy: {
+            attempts: 3,
+            evaluateOnExits: [
+                { onStatusReason: "Host EC2*", action: "RETRY" },    // Fargate Spot reclaim
+                { onReason: "*", action: "EXIT" },
+            ],
+        },
+        containerProperties: pulumi.all([repo.repositoryUrl, execRole.arn, role.arn])
+            .apply(([url, exec, job]) =&gt; JSON.stringify({
+                image: `${url}:${tag}`,
+                executionRoleArn: exec,
+                jobRoleArn: job,
+                runtimePlatform: { operatingSystemFamily: "LINUX", cpuArchitecture: "X86_64" }, // Spot: no ARM64
+                resourceRequirements: [{ type: "VCPU", value: vcpu }, { type: "MEMORY", value: memMiB }],
+                networkConfiguration: { assignPublicIp: "DISABLED" },
+                logConfiguration: { logDriver: "awslogs" },
+            })),
+    });
+const DISCOVERY_TIMEOUT = 6 * 3600;             // the reaper must never key on age below this
+const discoveryJob = jobDef("discovery", "discovery-1.1.0", discoveryRole, "2", "4096", DISCOVERY_TIMEOUT);
+const executorJob = jobDef("executor", "executor-1.1.0", executorRole, "1", "2048", 7 * 3600);
+
+// ---------- Step Functions (orchestrator + reaper) ----------
+const sfnLogs = new aws.cloudwatch.LogGroup("sfn-logs", { name: `/aws/vendedlogs/states/${prefix}`, retentionInDays: 90 });
+const sfnRole = new aws.iam.Role("sfn-role", { assumeRolePolicy: assume("states.amazonaws.com") });
+new aws.iam.RolePolicy("sfn-policy", {
+    role: sfnRole.id,
+    policy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [
+            // Neptune management APIs authorize with the rds: prefix
+            { Effect: "Allow", Action: ["rds:RestoreDBClusterToPointInTime", "rds:CreateDBInstance",
+                "rds:DescribeDBClusters", "rds:DescribeDBInstances", "rds:AddTagsToResource",
+                "rds:ListTagsForResource"], Resource: "*" },
+            // Destructive actions only on clone-named resources
+            { Effect: "Allow", Action: ["rds:DeleteDBInstance", "rds:DeleteDBCluster"],
+              Resource: ["arn:aws:rds:*:*:cluster:neptune-clone-*", "arn:aws:rds:*:*:db:neptune-clone-*"] },
+            { Effect: "Allow", Action: ["batch:SubmitJob", "batch:DescribeJobs", "batch:TerminateJob"], Resource: "*" },
+            { Effect: "Allow", Action: ["events:PutTargets", "events:PutRule", "events:DescribeRule"], Resource: "*" },
+            { Effect: "Allow", Action: ["dynamodb:Query", "dynamodb:GetItem", "dynamodb:PutItem",
+                "dynamodb:UpdateItem", "dynamodb:DeleteItem"], Resource: "*" },
+            { Effect: "Allow", Action: ["states:DescribeExecution"], Resource: "*" },   // reaper: owner still RUNNING?
+            { Effect: "Allow", Action: ["logs:CreateLogDelivery", "logs:GetLogDelivery", "logs:UpdateLogDelivery",
+                "logs:DeleteLogDelivery", "logs:ListLogDeliveries", "logs:PutResourcePolicy",
+                "logs:DescribeResourcePolicies", "logs:DescribeLogGroups"], Resource: "*" },
+        ],
+    }),
+});
+
+const render = (file: string) =&gt; pulumi.all([tenantConfig.name, runLedger.name, chunkLedger.name, clusterLease.name,
+        discoveryQueue.arn, discoveryJob.arn, executionQueue.arn, executorJob.arn,
+        cloneSubnets.name, cloneSg.id, cloneParams.name, edgeQueue.url, vertexQueue.url])
+    .apply(([tc, rl, cl, lt, dq, dj, eq, ej, sn, sg, pg, equ, vqu]) =&gt; fs.readFileSync(file, "utf8")
+        .replace(/\$\{TenantTable\}/g, tc).replace(/\$\{LedgerTable\}/g, rl)
+        .replace(/\$\{ChunkTable\}/g, cl).replace(/\$\{LeaseTable\}/g, lt)
+        .replace(/\$\{DiscoveryQueue\}/g, dq).replace(/\$\{DiscoveryJobDef\}/g, dj)
+        .replace(/\$\{ExecutionQueue\}/g, eq).replace(/\$\{ExecutorJobDef\}/g, ej)
+        .replace(/\$\{CloneSubnetGroup\}/g, sn).replace(/\$\{CloneSg\}/g, sg)
+        .replace(/\$\{CloneParamGroup\}/g, pg)
+        .replace(/\$\{EdgeQueueUrl\}/g, equ).replace(/\$\{VertexQueueUrl\}/g, vqu));
+
+const stateMachine = (name: string, file: string) =&gt; new aws.sfn.StateMachine(name, {
+    name: `${prefix}-${name}`,
+    type: "STANDARD",                            // runs last hours; Express caps at 5 minutes
+    roleArn: sfnRole.arn,
+    loggingConfiguration: { logDestination: pulumi.interpolate`${sfnLogs.arn}:*`, includeExecutionData: false, level: "ERROR" },
+    definition: render(file),
+});
+const purgeSm = stateMachine("orchestrator", "orchestrator.asl.json");
+const reaperSm = stateMachine("clone-reaper", "reaper.asl.json");
+
+// ---------- EventBridge Scheduler ----------
+const schedRole = new aws.iam.Role("scheduler-role", { assumeRolePolicy: assume("scheduler.amazonaws.com") });
+new aws.iam.RolePolicy("scheduler-policy", {
+    role: schedRole.id,
+    policy: pulumi.all([purgeSm.arn, reaperSm.arn]).apply(arns =&gt; JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{ Effect: "Allow", Action: "states:StartExecution", Resource: arns }],
+    })),
+});
+new aws.scheduler.Schedule("weekly-purge", {
+    name: `${prefix}-weekly`,
+    scheduleExpression: "cron(0 1 ? * SUN *)",
+    scheduleExpressionTimezone: "UTC",
+    flexibleTimeWindow: { mode: "OFF" },
+    target: { arn: purgeSm.arn, roleArn: schedRole.arn, input: JSON.stringify({ mode: "PURGE" }) },
+});
+new aws.scheduler.Schedule("clone-reaper", {
+    name: `${prefix}-clone-reaper`,
+    scheduleExpression: "rate(1 hour)",
+    flexibleTimeWindow: { mode: "OFF" },
+    target: { arn: reaperSm.arn, roleArn: schedRole.arn, input: "{}" },
+});
+
+// ---------- CloudWatch alarms ----------
+new aws.cloudwatch.MetricAlarm("dlq-not-empty", {
+    namespace: "AWS/SQS", metricName: "ApproximateNumberOfMessagesVisible",
+    dimensions: { QueueName: dlq.name },
+    statistic: "Maximum", period: 300, evaluationPeriods: 1,
+    threshold: 0, comparisonOperator: "GreaterThanThreshold", treatMissingData: "notBreaching",
+});
+new aws.cloudwatch.MetricAlarm("circuit-breaker", {
+    namespace: "NeptunePurge/MultiTenant", metricName: "CircuitBreakerTripped",
+    statistic: "Sum", period: 300, evaluationPeriods: 1,
+    threshold: 3, comparisonOperator: "GreaterThanOrEqualToThreshold", treatMissingData: "notBreaching",
+});
+new aws.cloudwatch.MetricAlarm("uncertain-outcomes", {
+    namespace: "NeptunePurge/MultiTenant", metricName: "RecordsUncertain",
+    statistic: "Sum", period: 300, evaluationPeriods: 1,
+    threshold: 0, comparisonOperator: "GreaterThanThreshold", treatMissingData: "notBreaching",
+});
+
+export const orchestratorArn = purgeSm.arn;
+export const reaperArn = reaperSm.arn;
+export const manifestBucket = manifests.bucket;
+export const edgeQueueUrl = edgeQueue.url;
+export const vertexQueueUrl = vertexQueue.url;</code></pre>
+
+        <h3>2. Step Functions Clone Lifecycle (ASL excerpt, JSONPath)</h3>
+        <p>The clone lifecycle from section 4.1 of the <a href="neptune_decoupled_purge_design-v2.2.html">v2.2 design</a>. <code>${...}</code> placeholders are filled in by the Pulumi program above. AWS SDK integrations take PascalCase parameter names in the SDK's own casing (<code>DbClusterIdentifier</code>, <code>EnableIamDatabaseAuthentication</code>), which differs from the API reference's <code>DBClusterIdentifier</code>.</p>
+<pre><code>"PreflightSource": {
+  "Type": "Task",
+  "Resource": "arn:aws:states:::aws-sdk:neptune:describeDBClusters",
+  "Parameters": { "DbClusterIdentifier.$": "$.tenant.SourceClusterIdentifier" },
+  "ResultSelector": {
+    "Status.$": "$.DbClusters[0].Status",
+    "LatestRestorableTime.$": "$.DbClusters[0].LatestRestorableTime"
+  },
+  "ResultPath": "$.source",
+  "Next": "SourceRestorable?"
+},
+"SourceRestorable?": {
+  "Type": "Choice",
+  "Choices": [{
+    "And": [
+      { "Variable": "$.source.Status", "StringEquals": "available" },
+      { "Variable": "$.source.LatestRestorableTime", "IsPresent": true },
+      { "Not": { "Variable": "$.source.LatestRestorableTime", "IsNull": true } }
+    ],
+    "Next": "CreateClone"
+  }],
+  "Default": "FailPreflight"                 // never fall back to a full-copy restore
+},
+"CreateClone": {
+  "Type": "Task",
+  "Resource": "arn:aws:states:::aws-sdk:neptune:restoreDBClusterToPointInTime",
+  "Parameters": {
+    "SourceDbClusterIdentifier.$": "$.tenant.SourceClusterIdentifier",
+    "DbClusterIdentifier.$": "$.cloneClusterId",          // deterministic: neptune-clone-{tenant}-{run}
+    "RestoreType": "copy-on-write",
+    "UseLatestRestorableTime": true,
+    "EnableIamDatabaseAuthentication": true,               // API default is false
+    "DeletionProtection": false,
+    "DbSubnetGroupName": "${CloneSubnetGroup}",
+    "VpcSecurityGroupIds": ["${CloneSg}"],
+    "DbClusterParameterGroupName": "${CloneParamGroup}",
+    "Tags": [
+      { "Key": "Purpose", "Value": "NeptunePurgeDiscovery" },
+      { "Key": "RunId", "Value.$": "$.runId" },
+      { "Key": "SourceClusterId", "Value.$": "$.tenant.SourceClusterIdentifier" },
+      { "Key": "OwnerExecution", "Value.$": "$$.Execution.Id" }
+    ]
+  },
+  "ResultPath": "$.clone",
+  "Retry": [{ "ErrorEquals": ["Neptune.InsufficientDbClusterCapacityException"], "MaxAttempts": 3, "BackoffRate": 2 }],
+  "Catch": [
+    { "ErrorEquals": ["Neptune.DbClusterAlreadyExistsException"], "ResultPath": "$.error", "Next": "WaitClusterAvailable" },
+    { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "CleanupClone" }
+  ],
+  "Next": "WaitClusterAvailable"
+},
+"WaitClusterAvailable": { "Type": "Wait", "Seconds": 60, "Next": "DescribeCloneCluster" },
+"DescribeCloneCluster": {
+  "Type": "Task",
+  "Resource": "arn:aws:states:::aws-sdk:neptune:describeDBClusters",
+  "Parameters": { "DbClusterIdentifier.$": "$.cloneClusterId" },
+  "ResultSelector": { "Status.$": "$.DbClusters[0].Status" },
+  "ResultPath": "$.cloneStatus",
+  "Next": "ClusterReady?"
+},
+"ClusterReady?": {
+  "Type": "Choice",
+  "Choices": [{ "Variable": "$.cloneStatus.Status", "StringEquals": "available", "Next": "CreateCloneInstance" }],
+  "Default": "WaitClusterAvailable"           // bound with a loop counter or state-level TimeoutSeconds
+},
+"CreateCloneInstance": {
+  "Type": "Task",
+  "Resource": "arn:aws:states:::aws-sdk:neptune:createDBInstance",
+  "Parameters": {
+    "DbClusterIdentifier.$": "$.cloneClusterId",
+    "DbInstanceIdentifier.$": "States.Format('{}-i1', $.cloneClusterId)",
+    "DbInstanceClass.$": "$.tenant.CloneComputeConfig.InstanceClass",
+    "Engine": "neptune"
+  },
+  "ResultPath": "$.cloneInstance",
+  "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "CleanupClone" }],
+  "Next": "WaitInstanceAvailable"
+},
+// ... WaitInstanceAvailable / DescribeDBInstances loop, then:
+"RunDiscovery": {
+  "Type": "Task",
+  "Resource": "arn:aws:states:::batch:submitJob.sync",
+  "Parameters": {
+    "JobQueue": "${DiscoveryQueue}",
+    "JobDefinition": "${DiscoveryJobDef}",
+    "JobName.$": "States.Format('discovery-{}', $.tenant.TenantId)",
+    "ContainerOverrides": { "Environment": [
+      { "Name": "CLONE_ENDPOINT", "Value.$": "$.cloneEndpoint" },
+      { "Name": "RUN_KEY", "Value.$": "$.runKey" },
+      { "Name": "CUTOFF_EPOCH", "Value.$": "States.Format('{}', $.cutoffEpoch)" }
+    ]}
+  },
+  "ResultPath": "$.discovery",
+  "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "CleanupClone" }],
+  "Next": "CleanupClone"
+}
+// CleanupClone: deleteDBInstance → wait/describe until gone → deleteDBCluster { "SkipFinalSnapshot": true }
+//               → wait/describe until DbClusterNotFoundFault → persist CloneCleanupStatus → route on $.error</code></pre>
+        <p class="muted">Before deploying, validate with <code>aws stepfunctions validate-state-machine-definition</code> and a test execution against a disposable cluster. Pulumi resource and property names target <code>@pulumi/aws</code> v7. The Pulumi Registry lookup was only partly available during this review (<code>neptune.Cluster</code>, <code>scheduler.Schedule</code> and <code>batch.ComputeEnvironment</code> were verified), so run <code>pulumi preview</code> and <code>tsc</code> before deploying.</p>
+    </section>
+
+</body>
+</html>
