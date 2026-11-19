@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neptune Purge v2 Review</title>
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --bg-card: #1e293b;
+            --bg-card-alt: #162032;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-blue: #38bdf8;
+            --accent-indigo: #818cf8;
+            --accent-emerald: #34d399;
+            --accent-amber: #fbbf24;
+            --accent-rose: #fb7185;
+            --border-color: #334155;
+            --code-bg: #0b1120;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            line-height: 1.6;
+            padding: 2rem 3rem;
+            max-width: 1440px;
+            margin: 0 auto;
+        }
+        @media (max-width: 720px) { body { padding: 1rem 16px; } }
+        header {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 1.75rem; margin-bottom: 2.5rem;
+            display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1rem;
+        }
+        .title-group h1 { font-size: 2.1rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.4rem; }
+        .title-group p { color: var(--text-muted); font-size: 1.05rem; }
+        .meta-badges { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+        .badge {
+            padding: 0.35rem 0.85rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.05em; background: var(--bg-card); border: 1px solid var(--border-color);
+        }
+        .badge.blue { color: var(--accent-blue); border-color: rgba(56,189,248,0.3); }
+        .badge.emerald { color: var(--accent-emerald); border-color: rgba(52,211,153,0.3); }
+        .badge.amber { color: var(--accent-amber); border-color: rgba(251,191,36,0.3); }
+        .badge.indigo { color: var(--accent-indigo); border-color: rgba(129,140,248,0.3); }
+        .badge.rose { color: var(--accent-rose); border-color: rgba(251,113,133,0.3); }
+        h2 {
+            font-size: 1.5rem; font-weight: 600; color: var(--accent-blue); margin: 2.5rem 0 1.25rem;
+            display: flex; align-items: center; gap: 0.6rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;
+        }
+        h3 { font-size: 1.15rem; font-weight: 600; margin: 1.25rem 0 0.75rem; }
+        p { margin-bottom: 1rem; color: #cbd5e1; }
+        a { color: var(--accent-blue); }
+        .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(450px, 100%), 1fr)); gap: 1.5rem; margin-bottom: 1.5rem; }
+        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 1.5rem; margin-bottom: 1.5rem; }
+        .card { background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 4px 20px rgba(0,0,0,0.25); min-width: 0; }
+        .card-header {
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;
+            padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color); flex-wrap: wrap; gap: 0.5rem;
+        }
+        .card-header h3 { margin: 0; font-size: 1.15rem; }
+        .diagram-container { background-color: var(--code-bg); border: 1px solid var(--border-color); border-radius: 0.75rem; padding: 1.5rem; margin: 1.5rem 0; overflow-x: auto; text-align: center; }
+        .diagram-caption { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.75rem; text-align: center; }
+        .table-wrap { overflow-x: auto; margin: 1.25rem 0; border-radius: 0.75rem; border: 1px solid var(--border-color); }
+        table { width: 100%; border-collapse: collapse; background-color: var(--bg-card); }
+        .card table { border: 1px solid var(--border-color); border-radius: 0.5rem; margin: 0.5rem 0 1rem; }
+        th, td { padding: 0.85rem 1rem; text-align: left; border-bottom: 1px solid var(--border-color); font-size: 0.9rem; vertical-align: top; }
+        th { background-color: var(--bg-card-alt); color: var(--accent-blue); font-weight: 600; text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.04em; }
+        tr:last-child td { border-bottom: none; }
+        tr.recommended-row { background-color: rgba(52,211,153,0.08); border-left: 4px solid var(--accent-emerald); }
+        ul, ol { padding-left: 1.4rem; margin-bottom: 1rem; color: #cbd5e1; }
+        li { margin-bottom: 0.45rem; }
+        code, pre { font-family: "JetBrains Mono", "Fira Code", Consolas, monospace; font-size: 0.85rem; }
+        code { background-color: var(--code-bg); color: var(--accent-amber); padding: 0.15rem 0.4rem; border-radius: 0.25rem; border: 1px solid rgba(255,255,255,0.08); overflow-wrap: anywhere; }
+        pre { background-color: var(--code-bg); color: #e2e8f0; padding: 1.25rem; border-radius: 0.5rem; border: 1px solid var(--border-color); overflow-x: auto; margin: 1rem 0; line-height: 1.5; }
+        pre code { background: none; border: none; padding: 0; color: inherit; overflow-wrap: normal; }
+        .callout { padding: 1.25rem 1.5rem; border-radius: 0.5rem; margin: 1.5rem 0; border-left: 4px solid var(--accent-blue); background-color: rgba(56,189,248,0.08); }
+        .callout.emerald { border-left-color: var(--accent-emerald); background-color: rgba(52,211,153,0.08); }
+        .callout.amber { border-left-color: var(--accent-amber); background-color: rgba(251,191,36,0.08); }
+        .callout.indigo { border-left-color: var(--accent-indigo); background-color: rgba(129,140,248,0.08); }
+        .callout.rose { border-left-color: var(--accent-rose); background-color: rgba(251,113,133,0.08); }
+        .callout-title { font-weight: 700; margin-bottom: 0.4rem; color: var(--text-main); display: flex; align-items: center; gap: 0.5rem; }
+        .tag-pill { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
+        .tag-high { background: rgba(52,211,153,0.15); color: var(--accent-emerald); }
+        .tag-med { background: rgba(251,191,36,0.15); color: var(--accent-amber); }
+        .tag-low { background: rgba(251,113,133,0.15); color: var(--accent-rose); }
+        .tag-info { background: rgba(56,189,248,0.15); color: var(--accent-blue); }
+        .fix { display: inline-block; padding: 0.05rem 0.4rem; margin-left: 0.3rem; border-radius: 0.25rem; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; background: rgba(251,113,133,0.15); color: var(--accent-rose); vertical-align: middle; }
+        del { color: var(--accent-rose); opacity: 0.8; }
+        .muted { color: var(--text-muted); font-size: 0.84rem; }
+        svg { max-width: 100%; height: auto; }
+        .src { font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="title-group">
+            <h1>Neptune Purge Engine — v2 Review Findings</h1>
+            <p>The v2 design checked against AWS documentation (reviewed 2026-11-18). Part A corrections were applied in v2.1. Part B (from a cross-check with the independent v3b review) is applied in v2.2.</p>
+            <p class="muted" style="margin-bottom:0;">Related: <a href="neptune_decoupled_purge_design-v2.2.html">v2.2 design</a> · <a href="neptune_decoupled_purge_design-v2.1-aws-verified.html">v2.1 design</a> · <a href="neptune_decoupled_purge_pulumi-iac-mapping.html">AWS → Pulumi IaC mapping</a></p>
+        </div>
+        <div class="meta-badges">
+            <span class="badge rose">13 + 14 Corrections</span>
+            <span class="badge emerald">AWS-Doc Verified</span>
+        </div>
+    </header>
+
+    <!-- SECTION 0: REVIEW FINDINGS -->
+    <section>
+        <h2>Part A — v2 vs. AWS Documentation (applied in v2.1)</h2>
+        <p>
+            Each statement in v2 was checked against the AWS documentation linked in the last column. Severity: <span class="tag-pill tag-low">High</span> = would fail at build or run time; <span class="tag-pill tag-med">Medium</span> = wrong value or misleading behavior; <span class="tag-pill tag-info">Low</span> = imprecise wording or an unverified estimate.
+        </p>
+        <div class="table-wrap">
+        <table>
+            <thead>
+                <tr><th>#</th><th>Sev.</th><th>Area</th><th>v2 Statement</th><th>Corrected (per AWS Docs)</th><th>Source</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>1</td><td><span class="tag-pill tag-low">High</span></td><td>Clone API</td>
+                    <td><code>RestoreDBClusterFromDBCluster</code> with <code>copy-tags-to-snapshot</code></td>
+                    <td>There is no such API. A Neptune clone is created with <code>RestoreDBClusterToPointInTime</code> using <code>RestoreType=copy-on-write</code> and <code>UseLatestRestorableTime=true</code>. <code>CopyTagsToSnapshot</code> has nothing to do with cloning. Pass <code>Tags</code> instead.</td>
+                    <td class="src"><a href="https://docs.aws.amazon.com/neptune/latest/userguide/manage-console-cloning.html">Neptune DB cloning</a></td>
+                </tr>
+                <tr>
+                    <td>2</td><td><span class="tag-pill tag-low">High</span></td><td>Clone instance</td>
+                    <td>One restore call yields a usable clone endpoint.</td>
+                    <td>The restore call <strong>only creates the cluster, not its instances</strong>. Wait for the cluster to be <code>available</code>, call <code>CreateDBInstance</code> (<code>db.r6g.*</code> or <code>db.serverless</code>), then wait for the instance to be available. Step Functions has no <code>.sync</code> for Neptune, so you need explicit Wait + <code>Describe*</code> polling loops.</td>
+                    <td class="src"><a href="https://docs.aws.amazon.com/neptune/latest/apiref/API_RestoreDBClusterToPointInTime.html">RestoreDBClusterToPointInTime</a></td>
+                </tr>
+                <tr>
+                    <td>3</td><td><span class="tag-pill tag-low">High</span></td><td>Clone networking</td>
+                    <td>Not specified.</td>
+                    <td>The restored cluster gets the <strong>default DB security group</strong> unless you pass <code>VpcSecurityGroupIds</code>. Always pass <code>VpcSecurityGroupIds</code>, <code>DBSubnetGroupName</code> and <code>DBClusterParameterGroupName</code>. Otherwise the Fargate discovery task can't reach the clone, or the clone runs with default timeouts.</td>
+                    <td class="src"><a href="https://docs.aws.amazon.com/neptune/latest/apiref/API_RestoreDBClusterToPointInTime.html">RestoreDBClusterToPointInTime</a></td>
+                </tr>
+                <tr>
+                    <td>4</td><td><span class="tag-pill tag-low">High</span></td><td>CloudWatch metric</td>
+                    <td><code>NumTxConflictErrors</code> (CME) used as a throttle signal.</td>
+                    <td><strong>No such Neptune metric exists.</strong> Track <code>ConcurrentModificationException</code> retries on the client as a custom EMF metric (<code>ConcurrentModificationRetries</code>). Use the Neptune <code>NumTxRolledBack</code> metric (writer) as a server-side proxy.</td>
+                    <td class="src"><a href="https://docs.aws.amazon.com/neptune/latest/userguide/cw-metrics.html">Neptune CW metrics</a></td>
+                </tr>
+                <tr>
+                    <td>5</td><td><span class="tag-pill tag-low">High</span></td><td>Step Functions</td>
+                    <td>"Native DynamoDB integration via Step Functions <code>Distributed Map</code>".</td>
+                    <td>The Distributed Map <code>ItemReader</code> reads only from <strong>S3</strong> (CSV, JSON, JSONL, Parquet, Athena manifest, S3 inventory) or from JSON state input. Query <code>TenantConfig</code> with the <code>aws-sdk:dynamodb:query</code> task first, then fan out with a Map state (inline is enough for fewer than ~40 tenants).</td>
+                    <td class="src"><a href="https://docs.aws.amazon.com/step-functions/latest/dg/input-output-itemreader.html">ItemReader (Map)</a></td>
+                </tr>
+                <tr>
+                    <td>6</td><td><span class="tag-pill tag-med">Medium</span></td><td>NCU logic</td>
+                    <td>Red if <code>NCUs ≥ 85% of MaxNcu</code> <em>or</em> <code>NCUUtilization &gt; 75%</code>, treated as two separate signals.</td>
+                    <td><code>NCUUtilization</code> <em>is</em> current NCUs ÷ the cluster's maximum NCU setting, so the two rules measure the same thing. The 85% rule could never fire because 75% fires first. Use <code>NCUUtilization</code> for headroom and <code>ServerlessDatabaseCapacity</code> (absolute NCUs) for the cost budget.</td>
+                    <td class="src"><a href="https://docs.aws.amazon.com/neptune/latest/userguide/cw-metrics.html">Neptune CW metrics</a></td>
+                </tr>
+                <tr>
+                    <td>7</td><td><span class="tag-pill tag-med">Medium</span></td><td>Metric polling</td>
+                    <td>30-second health polling loop.</td>
+                    <td>Neptune metrics are published at <strong>1-minute</strong> intervals, so polling every 30s only returns duplicate datapoints. Poll every <strong>60s</strong>. Neptune also <strong>only publishes non-zero values</strong>: treat a missing <code>UndoLogListSize</code> or <code>MainRequestQueuePendingRequests</code> datapoint as 0 (alarms: <code>TreatMissingData=notBreaching</code>).</td>
+                    <td class="src"><a href="https://docs.aws.amazon.com/neptune/latest/userguide/cw-metrics.html">Neptune CW metrics</a></td>
+                </tr>
+                <tr>
+                    <td>8</td><td><span class="tag-pill tag-med">Medium</span></td><td>Buffer cache</td>
+                    <td>Green &gt; 95%, Red &lt; 85%. Cap batch size below 90%.</td>
+                    <td>AWS sets the healthy baseline at <strong>99.9%</strong>. Below that, it advises adding memory. Thresholds tightened to Green ≥ 99%, Yellow 95–99%, Red &lt; 95%.</td>
+                    <td class="src"><a href="https://docs.aws.amazon.com/neptune/latest/userguide/best-practices-general-metrics.html">Metric best practices</a></td>
+                </tr>
+                <tr>
+                    <td>9</td><td><span class="tag-pill tag-med">Medium</span></td><td>SQS retention</td>
+                    <td>"SQS ... with a 14-day retention period" (implied default).</td>
+                    <td>14 days is the <strong>maximum</strong>. The default is <strong>4 days</strong>, so set <code>MessageRetentionPeriod=1209600</code> explicitly. Give the DLQ a retention ≥ the source queue's, because standard-queue expiry is based on the original enqueue time. The visibility timeout maximum is 12h: heartbeat with <code>ChangeMessageVisibility</code> during circuit-breaker pauses.</td>
+                    <td class="src"><a href="https://aws.amazon.com/sqs/faqs/">SQS FAQ</a> · <a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/API_ChangeMessageVisibility.html">ChangeMessageVisibility</a></td>
+                </tr>
+                <tr>
+                    <td>10</td><td><span class="tag-pill tag-med">Medium</span></td><td>Fargate Spot</td>
+                    <td>Discovery on Fargate Spot, "~70% savings". No interruption handling.</td>
+                    <td>The discount is "<strong>up to</strong> 70%". Spot tasks can be reclaimed with a <strong>2-minute warning</strong> (SIGTERM). Discovery must checkpoint its cursor to the ledger and resume. Fargate Spot <strong>doesn't support ARM64</strong>: build the discovery image for x86_64.</td>
+                    <td class="src"><a href="https://aws.amazon.com/blogs/hpc/why-use-fargate-with-aws-batch-for-serverless-batch-compute/">AWS HPC blog</a></td>
+                </tr>
+                <tr>
+                    <td>11</td><td><span class="tag-pill tag-med">Medium</span></td><td>Orphan reaper</td>
+                    <td>"fallback EventBridge rule ... force-deleted".</td>
+                    <td>An EventBridge rule can't delete resources by itself. Use an <strong>EventBridge Scheduler</strong> (hourly) that runs a reaper state machine: <code>DescribeDBClusters</code> → filter by tag <code>Purpose=NeptunePurgeDiscovery</code> and age &gt; 4h → <code>DeleteDBInstance</code> → <code>DeleteDBCluster(SkipFinalSnapshot=true)</code>.</td>
+                    <td class="src"><a href="https://docs.aws.amazon.com/neptune/latest/userguide/manage-console-cloning.html">Neptune cloning</a></td>
+                </tr>
+                <tr>
+                    <td>12</td><td><span class="tag-pill tag-info">Low</span></td><td>Clone timing &amp; limits</td>
+                    <td>"~5–12 minutes regardless of storage". No clone limits stated.</td>
+                    <td>AWS doesn't publish a provisioning time. Treat any figure as an internal estimate and measure it. Documented limits: <strong>at most 15 clones per copy</strong> (including clones of clones), <strong>same Region only</strong>, <strong>no cross-account cloning</strong>. A clone always runs the latest patch of the source engine version.</td>
+                    <td class="src"><a href="https://docs.aws.amazon.com/neptune/latest/userguide/manage-console-cloning.html">Neptune cloning</a></td>
+                </tr>
+                <tr>
+                    <td>13</td><td><span class="tag-pill tag-info">Low</span></td><td>UndoLog</td>
+                    <td>UndoLog thresholds stated without context.</td>
+                    <td>Only the <strong>writer</strong> purges the undo log, and records from deletes take longer to purge. Engine upgrades to ≥1.2.0.0 roll back if <code>UndoLogListSize</code> exceeds about 10k (smaller than 4xlarge) or 40k (4xlarge and larger). Don't schedule purges just before an engine upgrade.</td>
+                    <td class="src"><a href="https://docs.aws.amazon.com/neptune/latest/userguide/cw-metrics.html">Neptune CW metrics</a></td>
+                </tr>
+            </tbody>
+        </table>
+        </div>
+        <div class="callout emerald">
+            <div class="callout-title">Statements verified as correct</div>
+            <p style="margin-bottom:0;">
+                Neptune Serverless range is 1.0–128.0 NCUs, set in half-step increments · 1 NCU = 2 GiB RAM plus matching vCPU and networking · <code>ServerlessDatabaseCapacity</code>, <code>NCUUtilization</code>, <code>BufferCacheHitRatio</code>, <code>MainRequestQueuePendingRequests</code>, <code>UndoLogListSize</code> and <code>CPUUtilization</code> all exist · a clone uses copy-on-write and needs no extra storage at creation · Step Functions <code>batch:submitJob.sync</code> waits for job completion · SQS retention can go up to 14 days · Lambda has a 15-minute cap · <code>ConcurrentModificationException</code> is the Neptune write-conflict error, retried with exponential backoff.
+            </p>
+        </div>
+    </section>
+
+
+    <section>
+        <h2>Part B — Cross-Check with the v3b Review (applied in v2.2)</h2>
+        <p>An independent review (<code>neptune_decoupled_purge_design-v3b.html</code>) was compared with Part A. The rows below are the gaps it surfaced, plus two internal inconsistencies found during the comparison (#16, #27). AWS-documented facts were re-verified where cited.</p>
+        <div class="table-wrap">
+        <table>
+            <thead>
+                <tr><th>#</th><th>Sev.</th><th>Area</th><th>Issue in v2.1</th><th>Change in v2.2</th><th>Source</th></tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>14</td><td><span class="tag-pill tag-low">High</span></td><td>Live-data correctness</td>
+                    <td>Deletes use clone IDs as authority (<code>g.E(ids).drop()</code>). A record renewed, relabeled or reassigned after the snapshot would still be deleted.</td>
+                    <td>Each production delete re-applies the tenant, label and frozen-cutoff predicates in the same query. Outcomes are classified as Deleted, AlreadyAbsent, NoLongerEligible or Uncertain (design 5.4).</td>
+                    <td class="src">v3b · <a href="https://docs.aws.amazon.com/neptune/latest/userguide/manage-console-cloning.html">cloning (point-in-time)</a></td>
+                </tr>
+                <tr>
+                    <td>15</td><td><span class="tag-pill tag-low">High</span></td><td>Clone security</td>
+                    <td>Restore didn't set IAM auth. The discovery job role had <code>neptune-db:*</code> on <code>*</code>.</td>
+                    <td><code>EnableIAMDatabaseAuthentication</code> defaults to <code>false</code> on restore, so pass <code>true</code>. Discovery gets <code>ReadDataViaQuery</code> only. The executor gets Read, Delete and GetQueryStatus scoped to production cluster resource IDs.</td>
+                    <td class="src"><a href="https://docs.aws.amazon.com/neptune/latest/apiref/API_RestoreDBClusterToPointInTime.html">RestoreDBClusterToPointInTime</a> · <a href="https://docs.aws.amazon.com/neptune/latest/userguide/iam-dp-actions.html">data-plane IAM</a></td>
+                </tr>
+                <tr>
+                    <td>16</td><td><span class="tag-pill tag-low">High</span></td><td>Clone reaper</td>
+                    <td>The reaper deleted tagged clones older than 4h, but the discovery job timeout is 6h, so it could delete a clone mid-scan.</td>
+                    <td>The reaper requires ownership tags, a non-running owner execution or an expired lease heartbeat, and a clone-pattern ID. Age alone is never sufficient. The Step Functions role can only delete <code>neptune-clone-*</code> ARNs.</td>
+                    <td class="src">Internal consistency</td>
+                </tr>
+                <tr>
+                    <td>17</td><td><span class="tag-pill tag-low">High</span></td><td>Writer failover</td>
+                    <td>Config stored a static <code>WriterInstanceIdentifier</code>. After a failover, health metrics would come from a reader.</td>
+                    <td>Resolve the current writer every cycle from <code>DBClusterMembers[IsClusterWriter]</code>. A writer change is Red: reconnect and re-baseline.</td>
+                    <td class="src"><a href="https://docs.aws.amazon.com/neptune/latest/userguide/cw-metrics.html">CW metrics (instance dimension)</a></td>
+                </tr>
+                <tr>
+                    <td>18</td><td><span class="tag-pill tag-low">High</span></td><td>Shared clusters</td>
+                    <td>Throttle state lived in each tenant job, so N tenants on one cluster meant N times the load.</td>
+                    <td>Use one controller and rate budget per source cluster, coordinated through a <code>NeptunePurgeClusterLease</code> item with a fencing token and heartbeat.</td>
+                    <td class="src">v3b</td>
+                </tr>
+                <tr>
+                    <td>19</td><td><span class="tag-pill tag-low">High</span></td><td>Vertex semantics</td>
+                    <td>"Edges first" was enforced only by ordering, and vertex drops didn't account for incident edges.</td>
+                    <td>Dropping a vertex removes all its edges, so add a per-rule <code>VertexEdgePolicy</code> (for example <code>ORPHAN_ONLY</code> → <code>.not(bothE())</code>). The vertex phase starts only after every edge chunk is terminal in the chunk ledger.</td>
+                    <td class="src">v3b</td>
+                </tr>
+                <tr>
+                    <td>20</td><td><span class="tag-pill tag-med">Medium</span></td><td>Tenant scope</td>
+                    <td>Discovery assumed one tenant per cluster.</td>
+                    <td>A clone contains the whole source cluster, so filter on <code>TenantIdProperty</code> in every discovery and delete query when clusters are shared.</td>
+                    <td class="src">v3b</td>
+                </tr>
+                <tr>
+                    <td>21</td><td><span class="tag-pill tag-med">Medium</span></td><td>Accounting</td>
+                    <td>Counts were incremented per chunk with <code>UpdateItem ADD</code>. SQS delivers at least once, and <code>drop()</code> returns no counts.</td>
+                    <td>Add a chunk ledger with conditional claims and fencing. <code>TransactWriteItems</code> completes the chunk and updates run totals once. A crash between the graph commit and the ledger commit is resolved as <code>UNCERTAIN</code> by re-reading.</td>
+                    <td class="src">v3b · SQS at-least-once</td>
+                </tr>
+                <tr>
+                    <td>22</td><td><span class="tag-pill tag-med">Medium</span></td><td>Manifest lifecycle</td>
+                    <td>SQS pointers were published as chunks were written. A window that closed early still reported <code>COMPLETED</code>.</td>
+                    <td>Seal the manifest only after the full scan, then publish pointers. An executor never starts on an unsealed manifest. A run that hits its window ends <code>PAUSED</code> and is resumed before the next discovery.</td>
+                    <td class="src">v3b</td>
+                </tr>
+                <tr>
+                    <td>23</td><td><span class="tag-pill tag-med">Medium</span></td><td>Retention rule</td>
+                    <td><code>SESSION_EVENT</code> used <code>RetentionDays: 90</code> on <code>expiresAtEpoch</code>, which already holds an expiry time, so retention was counted twice.</td>
+                    <td><code>CutoffMode: BEFORE_RUN_CUTOFF</code> for expiry properties. <code>RETENTION_DAYS</code> (cutoff = run start − N days, applied once) for creation timestamps.</td>
+                    <td class="src">v3b</td>
+                </tr>
+                <tr>
+                    <td>24</td><td><span class="tag-pill tag-med">Medium</span></td><td>Clone preflight</td>
+                    <td>No check that the source cluster is restorable.</td>
+                    <td>Before restoring, require <code>Status=available</code> and a non-null <code>LatestRestorableTime</code>. Never fall back to a full copy, which is the default when <code>RestoreType</code> is omitted.</td>
+                    <td class="src"><a href="https://docs.aws.amazon.com/neptune/latest/apiref/API_RestoreDBClusterToPointInTime.html">RestoreDBClusterToPointInTime</a></td>
+                </tr>
+                <tr>
+                    <td>25</td><td><span class="tag-pill tag-med">Medium</span></td><td>Throttle signals</td>
+                    <td>Only CloudWatch, at 1-minute resolution.</td>
+                    <td>Add the live query queue (<code>acceptedQueryCount − runningQueryCount</code> via <code>GetQueryStatus</code>, every 15s) and the application's p95 latency against its SLO. Adjust a single rate rather than batch size, workers and delay together. A missing <code>CPUUtilization</code> datapoint (always published) means stale → Red.</td>
+                    <td class="src"><a href="https://docs.aws.amazon.com/neptune/latest/userguide/gremlin-api-status.html">Gremlin status API</a></td>
+                </tr>
+                <tr>
+                    <td>26</td><td><span class="tag-pill tag-info">Low</span></td><td>Chunk math</td>
+                    <td>1,186 chunks, which assumed edges and vertices were mixed in chunks.</td>
+                    <td>Edges and vertices are chunked separately for the phase barrier: 965 + 222 = <strong>1,187</strong>.</td>
+                    <td class="src">Arithmetic</td>
+                </tr>
+                <tr>
+                    <td>27</td><td><span class="tag-pill tag-info">Low</span></td><td>SFN parameter casing</td>
+                    <td>ASL mixed <code>SourceDBClusterIdentifier</code> with <code>DbClusterIdentifier</code>.</td>
+                    <td>Use the SDK casing consistently (<code>SourceDbClusterIdentifier</code>, <code>DbSubnetGroupName</code>, <code>EnableIamDatabaseAuthentication</code>). Validate with <code>validate-state-machine-definition</code>.</td>
+                    <td class="src"><a href="https://docs.aws.amazon.com/step-functions/latest/dg/supported-services-awssdk.html">SFN SDK integrations</a></td>
+                </tr>
+            </tbody>
+        </table>
+        </div>
+
+        <h3>v3b items not adopted</h3>
+        <p>These v3b positions conflict with AWS documentation or with Part A. v2.2 keeps the Part A value.</p>
+        <div class="table-wrap">
+        <table>
+            <thead><tr><th>v3b position</th><th>Why v2.2 differs</th></tr></thead>
+            <tbody>
+                <tr><td>Serverless Red at both "≥ 85% of MaxNcu" and <code>NCUUtilization ≥ 70%</code>; static <code>ClusterMaxNcu</code> in config</td><td>Same signal twice; the 85% rule can never fire. v2.2 keeps <code>NCUUtilization</code> alone and reads <code>MaxCapacity</code> from <code>DescribeDBClusters</code>.</td></tr>
+                <tr><td>Any missing or stale telemetry → Red</td><td>Neptune publishes <code>UndoLogListSize</code> and <code>MainRequestQueuePendingRequests</code> only when non-zero, so an idle cluster would stay Red. v2.2 treats only a missing <code>CPUUtilization</code> as stale.</td></tr>
+                <tr><td><code>BufferCacheHitRatio</code> Green ≥ 95%, Stop &lt; 85%</td><td>AWS's healthy baseline is 99.9%. v2.2 uses Green ≥ 99% and Stop &lt; 95%.</td></tr>
+                <tr><td>SQS "14-day retention" with no setting called out</td><td>The default is 4 days. v2.2 sets 1,209,600s explicitly and gives the DLQ at least the same retention.</td></tr>
+                <tr><td>No ARM64 caveat for Fargate Spot</td><td>Fargate Spot doesn't support ARM64. v2.2 pins <code>X86_64</code>.</td></tr>
+                <tr><td>No <code>DBClusterParameterGroupName</code> on the restore call</td><td>Long discovery scans would run with the default query timeout. v2.2 passes a clone parameter group.</td></tr>
+            </tbody>
+        </table>
+        </div>
+    </section>
+
+</body>
+</html>
