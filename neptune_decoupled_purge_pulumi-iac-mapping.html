@@ -99,21 +99,38 @@
 
     <header>
         <div class="title-group">
-            <h1>Neptune Purge Engine — AWS → Pulumi IaC Mapping (v2.2)</h1>
-            <p>Pulumi (TypeScript, <code>@pulumi/aws</code> v7) resources for each AWS component of the v2.2 design</p>
-            <p class="muted" style="margin-bottom:0;">Related: <a href="neptune_decoupled_purge_design-v2.2.html">v2.2 design</a> · <a href="neptune_decoupled_purge_design-v2-review-findings.html">review findings</a></p>
+            <h1>Neptune Purge Engine — AWS → Pulumi IaC Mapping (v2.3)</h1>
+            <p>Pulumi (TypeScript, <code>@pulumi/aws</code> v7) resources for each AWS component of the v2.3 design, including per-tenant KMS and BYOK</p>
+            <p class="muted" style="margin-bottom:0;">Related: <a href="neptune_decoupled_purge_design-v2.3.html">v2.3 design</a> · <a href="archives/neptune_decoupled_purge_design-v2-review-findings.html">review findings</a></p>
         </div>
         <div class="meta-badges">
             <span class="badge blue">Pulumi IaC</span>
             <span class="badge emerald">Step Functions + Batch (Fargate) + SQS</span>
             <span class="badge rose">Least-Privilege Roles</span>
+            <span class="badge amber">Per-Tenant KMS &amp; BYOK</span>
         </div>
     </header>
+
+    <div class="callout rose" style="margin-top:0;">
+        <div class="callout-title">What changed for v2.3</div>
+        <ul style="margin-bottom:0;">
+            <li><strong>Platform KMS key</strong> (<code>aws.kms.Key</code>) for DynamoDB, SQS, CloudWatch Logs, Step Functions and the manifests of <code>PLATFORM_KEY</code> tenants. SQS moves from SSE-SQS to this key.</li>
+            <li><strong>Tenant-data role</strong> assumed with <code>TenantId</code>/<code>TenantKmsKeyArn</code> session tags. The job roles lose direct S3 access. The manifest bucket policy rejects untagged writers and writes with the wrong key.</li>
+            <li><strong>Step Functions</strong> gets <code>kms:DescribeKey</code> and a conditioned <code>kms:CreateGrant</code>. The ASL adds the key preflight, skip states, the clone key check and the <code>inaccessible-encryption-credentials</code> branch.</li>
+            <li><strong>Athena:</strong> a results bucket, one workgroup per <code>TENANT_KEY</code> tenant that enforces the tenant key, and a tenant-tagged audit role.</li>
+            <li><strong>Batch:</strong> an explicit KMS-encrypted log group, exit code 78 for key loss (never retried), and the tenant-data role ARN passed in the environment.</li>
+            <li><strong>Alarms:</strong> <code>KeyMismatch</code>, <code>CloneStuckKeyUnavailable</code>, and per tenant <code>TenantKeyUnavailable</code> and <code>KeyMaterialHoursRemaining</code>.</li>
+            <li><strong>New section 3:</strong> the tenant key-policy statements, which live in the stack that owns the keys.</li>
+        </ul>
+    </div>
 
     <section>
         <h2>AWS → Pulumi IaC Mapping</h2>
         <p>
             Long-lived infrastructure is managed by Pulumi (TypeScript, <code>@pulumi/aws</code> v7). The <strong>ephemeral discovery clone is deliberately not a Pulumi resource</strong>. The Classic provider's <code>aws.neptune.Cluster</code> has no point-in-time or copy-on-write restore input (only <code>snapshotIdentifier</code>). Pulumi AWS Native (<code>aws-native.neptune.DbCluster</code>, which maps to <code>AWS::Neptune::DBCluster</code>) does expose <code>restoreType</code>, <code>sourceDbClusterIdentifier</code> and <code>useLatestRestorableTime</code>. Even so, a per-run clone doesn't belong in stack state, and you should never run <code>pulumi up</code> or <code>pulumi destroy</code> for each weekly run. Pulumi provisions everything the clone needs (IAM, subnet group, security group, parameter group). Step Functions creates and deletes the clone at runtime.
+        </p>
+        <p>
+            <strong>Tenant keys aren't owned by the purge stack.</strong> They belong to the stack that creates each tenant's dedicated cluster (a cluster's key is fixed at creation). That stack adds the purge statements to each key policy, using this stack's role ARNs through a <code>StackReference</code> (section 3). The purge stack never writes another stack's key policy: <code>aws.kms.KeyPolicy</code> replaces the whole policy.
         </p>
 
         <div class="table-wrap">
@@ -122,20 +139,24 @@
                 <tr><th>Design Component</th><th>AWS Service / API</th><th>Pulumi Resource(s)</th><th>Key Properties</th><th>Lifecycle</th></tr>
             </thead>
             <tbody>
-                <tr><td>Weekly trigger, clone reaper</td><td>EventBridge Scheduler</td><td><code>aws.scheduler.Schedule</code> ×2</td><td><code>cron(0 1 ? * SUN *)</code> → orchestrator; <code>rate(1 hour)</code> → reaper state machine</td><td>IaC</td></tr>
-                <tr><td>Control plane, reaper</td><td>Step Functions</td><td><code>aws.sfn.StateMachine</code> ×2, <code>aws.cloudwatch.LogGroup</code></td><td><code>type: "STANDARD"</code> (runs last hours; Express caps at 5 min); <code>loggingConfiguration.level: "ERROR"</code></td><td>IaC</td></tr>
-                <tr><td>Tenant config, run ledger, chunk ledger, cluster leases</td><td>DynamoDB</td><td><code>aws.dynamodb.Table</code> ×4</td><td><code>PAY_PER_REQUEST</code>; PITR on; chunk ledger <code>RunKey</code>/<code>ChunkId</code>; lease table keyed by <code>ClusterResourceId</code> with <code>ttl</code> on <code>ExpiresAt</code></td><td>IaC</td></tr>
-                <tr><td>Manifest store</td><td>S3</td><td><code>aws.s3.Bucket</code>, <code>aws.s3.BucketServerSideEncryptionConfiguration</code>, <code>aws.s3.BucketPublicAccessBlock</code>, <code>aws.s3.BucketLifecycleConfiguration</code></td><td>SSE-KMS; block all public access; tenant prefixes; expire after the audit period (for example 400 days)</td><td>IaC</td></tr>
-                <tr><td>Edge / vertex phase queues + DLQ</td><td>SQS</td><td><code>aws.sqs.Queue</code> ×3</td><td><code>messageRetentionSeconds: 1209600</code> on all three (default 4 days); <code>visibilityTimeoutSeconds: 900</code>; <code>maxReceiveCount: 3</code>; <code>sqsManagedSseEnabled: true</code></td><td>IaC</td></tr>
-                <tr><td>Discovery compute</td><td>Batch on Fargate Spot</td><td><code>aws.batch.ComputeEnvironment</code>, <code>aws.batch.JobQueue</code>, <code>aws.batch.JobDefinition</code></td><td><code>FARGATE_SPOT</code>; <code>cpuArchitecture: "X86_64"</code>; retry on Spot reclaim; <code>attemptDurationSeconds: 21600</code>; <strong>read-only</strong> job role</td><td>IaC</td></tr>
+                <tr><td>Weekly trigger, clone reaper</td><td>EventBridge Scheduler</td><td><code>aws.scheduler.Schedule</code> ×2</td><td><code>cron(0 1 ? * SUN *)</code> → orchestrator; <code>rate(1 hour)</code> → reaper state machine. The scheduler role can use the platform key via <code>states</code>.</td><td>IaC</td></tr>
+                <tr><td>Control plane, reaper</td><td>Step Functions</td><td><code>aws.sfn.StateMachine</code> ×2, <code>aws.cloudwatch.LogGroup</code></td><td><code>type: "STANDARD"</code>; <code>loggingConfiguration.level: "ERROR"</code>; <strong>v2.3:</strong> <code>encryptionConfiguration</code> = platform key; log group <code>kmsKeyId</code></td><td>IaC</td></tr>
+                <tr class="recommended-row"><td>Platform key (v2.3)</td><td>KMS</td><td><code>aws.kms.Key</code>, <code>aws.kms.Alias</code></td><td>Rotation on; key policy delegates to IAM and allows <code>logs.&lt;region&gt;.amazonaws.com</code> for log groups; roles use it only via <code>kms:ViaService</code></td><td>IaC</td></tr>
+                <tr class="recommended-row"><td>Tenant keys, incl. BYOK (v2.3)</td><td>KMS</td><td><code>aws.kms.Key</code> / <code>aws.kms.ExternalKey</code> (tenant onboarding stack)</td><td>Tagged <code>TenantId</code>; key policy includes the three purge statements (section 3); BYOK <code>validTo</code> is checked by the preflight</td><td>Referenced (other stack)</td></tr>
+                <tr><td>Tenant config, run ledger, chunk ledger, cluster leases</td><td>DynamoDB</td><td><code>aws.dynamodb.Table</code> ×4</td><td><code>PAY_PER_REQUEST</code>; PITR on; <strong>v2.3:</strong> <code>serverSideEncryption.kmsKeyArn</code> = platform key (no customer data, design 6.4)</td><td>IaC</td></tr>
+                <tr><td>Manifest store</td><td>S3</td><td><code>aws.s3.Bucket</code>, <code>BucketServerSideEncryptionConfiguration</code>, <code>BucketPublicAccessBlock</code>, <code>BucketLifecycleConfiguration</code>, <strong><code>BucketPolicy</code></strong></td><td>Default SSE-KMS = platform key (fallback) with Bucket Keys; writers always send <code>SSEKMSKeyId</code>; <strong>v2.3:</strong> bucket policy <code>DenyUntaggedWriters</code>, <code>DenyWrongKmsKey</code>, TLS only</td><td>IaC</td></tr>
+                <tr><td>Edge / vertex phase queues + DLQ</td><td>SQS</td><td><code>aws.sqs.Queue</code> ×3</td><td><code>messageRetentionSeconds: 1209600</code>; <code>maxReceiveCount: 3</code>; <strong>v2.3:</strong> <code>kmsMasterKeyId</code> = platform key (pointers only)</td><td>IaC</td></tr>
+                <tr><td>Discovery compute</td><td>Batch on Fargate Spot</td><td><code>aws.batch.ComputeEnvironment</code>, <code>aws.batch.JobQueue</code>, <code>aws.batch.JobDefinition</code></td><td><code>FARGATE_SPOT</code>; <code>X86_64</code>; retry on Spot reclaim only; <strong>exit 78 = key loss → EXIT</strong>; <code>attemptDurationSeconds: 21600</code>; read-only job role</td><td>IaC</td></tr>
                 <tr><td>Execution compute</td><td>Batch on Fargate</td><td>Same three types</td><td><code>FARGATE</code>; timeout ≥ maintenance window; job role scoped to production cluster resource IDs</td><td>IaC</td></tr>
+                <tr><td>Container logs (v2.3)</td><td>CloudWatch Logs</td><td><code>aws.cloudwatch.LogGroup</code></td><td>Explicit <code>awslogs-group</code> with <code>kmsKeyId</code> = platform key; sanitized logs only (design 6.4)</td><td>IaC</td></tr>
+                <tr class="recommended-row"><td>Tenant-tagged access (v2.3)</td><td>IAM / STS</td><td><code>aws.iam.Role</code> ×2 (<code>tenant-data</code>, <code>tenant-audit</code>), <code>aws.iam.RolePolicy</code></td><td>Trust requires <code>sts:TagSession</code> with exactly <code>TenantId</code> and <code>TenantKmsKeyArn</code>; S3 limited to <code>${aws:PrincipalTag/TenantId}/*</code>; KMS via S3 only, tenant keys matched by <code>aws:ResourceTag/TenantId</code></td><td>IaC</td></tr>
                 <tr><td>Container images</td><td>ECR</td><td><code>aws.ecr.Repository</code></td><td><code>scanOnPush: true</code>, immutable tags</td><td>IaC</td></tr>
                 <tr><td>Clone networking &amp; params</td><td>Neptune, EC2</td><td><code>aws.neptune.SubnetGroup</code>, <code>aws.ec2.SecurityGroup</code> ×3, <code>aws.neptune.ClusterParameterGroup</code></td><td>Clone SG admits 8182 only from the discovery SG; subnets in the source cluster's AZs; long <code>neptune_query_timeout</code></td><td>IaC</td></tr>
-                <tr><td>Production clusters</td><td>Neptune</td><td><code>aws.neptune.Cluster</code>, <code>aws.neptune.ClusterInstance</code> (usually other stacks)</td><td><code>serverlessV2ScalingConfiguration</code> within 1.0–128.0; <code>iamDatabaseAuthenticationEnabled: true</code>; executor SG added to ingress</td><td>Referenced (<code>StackReference</code> / <code>.get()</code>)</td></tr>
-                <tr class="recommended-row"><td>Ephemeral discovery clone</td><td>Neptune <code>RestoreDBClusterToPointInTime</code> + <code>CreateDBInstance</code></td><td><strong>None</strong> (Step Functions <code>aws-sdk:neptune:*</code> tasks)</td><td><code>RestoreType: "copy-on-write"</code>, <code>UseLatestRestorableTime: true</code>, <code>EnableIamDatabaseAuthentication: true</code>, ownership tags</td><td>Runtime</td></tr>
-                <tr><td>Metrics, dashboards, alarms</td><td>CloudWatch</td><td><code>aws.cloudwatch.Dashboard</code>, <code>aws.cloudwatch.MetricAlarm</code>, <code>aws.cloudwatch.LogGroup</code></td><td><code>treatMissingData: "notBreaching"</code>; alarms on DLQ, circuit breaker and uncertain outcomes</td><td>IaC</td></tr>
-                <tr><td>Manifest audit</td><td>Athena + Glue Data Catalog</td><td><code>aws.athena.Workgroup</code>, <code>aws.glue.CatalogDatabase</code>, <code>aws.glue.CatalogTable</code></td><td>JSON SerDe over <code>JSONL.gz</code>; partition projection on <code>tenant</code>/<code>run</code></td><td>IaC</td></tr>
-                <tr><td>Permissions</td><td>IAM</td><td><code>aws.iam.Role</code> ×6, <code>aws.iam.RolePolicy</code></td><td>Separate discovery and executor job roles (see the note below); Step Functions role limits <code>rds:Delete*</code> to <code>neptune-clone-*</code> ARNs</td><td>IaC</td></tr>
+                <tr><td>Production clusters</td><td>Neptune</td><td><code>aws.neptune.Cluster</code>, <code>aws.neptune.ClusterInstance</code> (other stacks)</td><td><code>storageEncrypted: true</code>; <code>kmsKeyArn</code> = tenant key (<code>TENANT_KEY</code>, dedicated) or platform key (shared); <code>iamDatabaseAuthenticationEnabled: true</code></td><td>Referenced</td></tr>
+                <tr class="recommended-row"><td>Ephemeral discovery clone</td><td>Neptune <code>RestoreDBClusterToPointInTime</code> + <code>CreateDBInstance</code></td><td><strong>None</strong> (Step Functions <code>aws-sdk:neptune:*</code> tasks)</td><td><code>RestoreType: "copy-on-write"</code>, IAM auth on, ownership tags; <strong>no <code>KmsKeyId</code></strong> (inherits the source key; verified after the restore)</td><td>Runtime</td></tr>
+                <tr><td>Metrics, dashboards, alarms</td><td>CloudWatch</td><td><code>aws.cloudwatch.Dashboard</code>, <code>aws.cloudwatch.MetricAlarm</code></td><td><code>treatMissingData: "notBreaching"</code>; DLQ, circuit breaker, uncertain outcomes; <strong>v2.3:</strong> key alarms</td><td>IaC</td></tr>
+                <tr><td>Manifest audit</td><td>Athena + Glue Data Catalog</td><td><code>aws.athena.Workgroup</code> (1 + one per <code>TENANT_KEY</code> tenant), <code>aws.s3.Bucket</code> (results), <code>aws.glue.CatalogDatabase</code>, <code>aws.glue.CatalogTable</code></td><td><code>enforceWorkgroupConfiguration: true</code>; results <code>SSE_KMS</code> with the tenant key; partition projection on <code>tenant</code>/<code>run</code></td><td>IaC</td></tr>
+                <tr><td>Permissions</td><td>IAM</td><td><code>aws.iam.Role</code> ×8, <code>aws.iam.RolePolicy</code></td><td>Discovery and executor job roles have no direct S3 access. Step Functions limits <code>rds:Delete*</code> to <code>neptune-clone-*</code> and <code>kms:CreateGrant</code> to <code>rds</code> grants for AWS resources.</td><td>IaC</td></tr>
             </tbody>
         </table>
         </div>
@@ -143,9 +164,10 @@
         <div class="callout amber">
             <div class="callout-title">IAM model</div>
             <ul style="margin-bottom:0;">
-                <li><strong>Control plane:</strong> Neptune management APIs (restore, create, delete, describe) are authorized with <code>rds:*</code> actions. The Step Functions <code>Resource</code> ARN is still <code>arn:aws:states:::aws-sdk:neptune:&lt;action&gt;</code>. Delete actions are limited to clone-named ARNs, so the orchestrator can't delete a production cluster.</li>
-                <li><strong>Discovery role:</strong> <code>neptune-db:ReadDataViaQuery</code> only. The clone's resource ID isn't known until runtime, so the grant is account- and Region-wide. It can only reach clusters whose security group admits the discovery security group, which is the clone SG alone.</li>
-                <li><strong>Executor role:</strong> <code>ReadDataViaQuery</code>, <code>DeleteDataViaQuery</code> and <code>GetQueryStatus</code> on the configured production <code>cluster-XXXX</code> resource IDs only. Requests are SigV4-signed.</li>
+                <li><strong>Control plane:</strong> Neptune management APIs (restore, create, delete, describe) are authorized with <code>rds:*</code> actions. Delete actions are limited to clone-named ARNs. <strong>v2.3:</strong> <code>kms:DescribeKey</code> for the preflight, and <code>kms:CreateGrant</code> only with <code>kms:ViaService=rds.&lt;region&gt;</code> and <code>kms:GrantIsForAWSResource=true</code>, which is what Neptune needs to restore an encrypted cluster. The tenant key policy must allow the same actions.</li>
+                <li><strong>Discovery role:</strong> <code>neptune-db:ReadDataViaQuery</code> only, plus SQS/DynamoDB and the platform key via those services. It can only reach the clone because of the clone security group.</li>
+                <li><strong>Executor role:</strong> <code>ReadDataViaQuery</code>, <code>DeleteDataViaQuery</code> and <code>GetQueryStatus</code> on the configured production resource IDs only. Graph deletes need no KMS permissions.</li>
+                <li><strong>Tenant-data role (v2.3):</strong> all manifest reads and writes. The trust policy requires exactly the <code>TenantId</code> and <code>TenantKmsKeyArn</code> tags. Role chaining caps sessions at 1h, so containers use an auto-refreshing STS credentials provider. The tags stop cross-tenant bugs, not compromised code. A BYOK tenant that needs a hard boundary gets its own job definition and job role with the same policies and fixed values.</li>
             </ul>
         </div>
 
@@ -156,13 +178,48 @@ import * as fs from "fs";
 
 const cfg = new pulumi.Config();
 const vpcId = cfg.require("vpcId");
-const privateSubnetIds = cfg.requireObject&lt;string[]&gt;("privateSubnetIds"); // same AZs as the source clusters
+const privateSubnetIds = cfg.requireObject&lt;string[]&gt;("privateSubnetIds");          // same AZs as the source clusters
 const prodClusterResourceIds = cfg.requireObject&lt;string[]&gt;("prodClusterResourceIds"); // cluster-XXXX
+// v2.3: TENANT_KEY tenants (dedicated clusters). Keys are owned by the tenant onboarding stack (section 3).
+const tenantKeyTenants = cfg.requireObject&lt;{ tenantId: string; kmsKeyArn: string }[]&gt;("tenantKeyTenants");
+const auditPrincipalArns = cfg.requireObject&lt;string[]&gt;("auditPrincipalArns");      // who may run audit queries
+
 const region = aws.getRegionOutput().name;
 const accountId = aws.getCallerIdentityOutput().accountId;
 const prefix = "neptune-purge";
+// IAM policy variables. Plain strings, so TypeScript doesn't interpolate them.
+const PT_TENANT = "${aws:PrincipalTag/TenantId}";
+const PT_KEY = "${aws:PrincipalTag/TenantKmsKeyArn}";
 
-// ---------- DynamoDB: config, run ledger, chunk ledger, cluster leases ----------
+// ---------- v2.3: platform KMS key (shared, non-customer-data stores) ----------
+// Encrypts SQS, DynamoDB, CloudWatch Logs, Step Functions and manifests of PLATFORM_KEY tenants.
+const platformKey = new aws.kms.Key("platform-key", {
+    description: "Neptune purge platform key (no customer data)",
+    enableKeyRotation: true,
+    deletionWindowInDays: 30,
+    policy: pulumi.all([region, accountId]).apply(([r, a]) =&gt; JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [
+            { Sid: "AccountAdmin", Effect: "Allow", Principal: { AWS: `arn:aws:iam::${a}:root` },
+              Action: "kms:*", Resource: "*" },                       // IAM policies below grant use
+            { Sid: "CloudWatchLogs", Effect: "Allow", Principal: { Service: `logs.${r}.amazonaws.com` },
+              Action: ["kms:Encrypt*", "kms:Decrypt*", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:Describe*"],
+              Resource: "*",
+              Condition: { ArnLike: { "kms:EncryptionContext:aws:logs:arn": `arn:aws:logs:${r}:${a}:log-group:*` } } },
+        ],
+    })),
+});
+new aws.kms.Alias("platform-key-alias", { name: `alias/${prefix}-platform`, targetKeyId: platformKey.keyId });
+
+// Lets a role use the platform key only through the named services.
+const platformKeyUse = (keyArn: string, r: string, services: string[]) =&gt; ({
+    Effect: "Allow",
+    Action: ["kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey", "kms:CreateGrant"],
+    Resource: keyArn,
+    Condition: { StringEquals: { "kms:ViaService": services.map(s =&gt; `${s}.${r}.amazonaws.com`) } },
+});
+
+// ---------- DynamoDB: config, run ledger, chunk ledger, cluster leases (platform key) ----------
 const table = (name: string, hashKey: string, rangeKey?: string, ttlAttr?: string) =&gt;
     new aws.dynamodb.Table(name, {
         name,
@@ -171,7 +228,7 @@ const table = (name: string, hashKey: string, rangeKey?: string, ttlAttr?: strin
         rangeKey,
         attributes: [{ name: hashKey, type: "S" }, ...(rangeKey ? [{ name: rangeKey, type: "S" }] : [])],
         pointInTimeRecovery: { enabled: true },
-        serverSideEncryption: { enabled: true },
+        serverSideEncryption: { enabled: true, kmsKeyArn: platformKey.arn },   // v2.3
         ttl: ttlAttr ? { attributeName: ttlAttr, enabled: true } : undefined,
     });
 const tenantConfig = table("NeptuneTenantPurgeConfig", "TenantId");
@@ -179,34 +236,56 @@ const runLedger    = table("NeptunePurgeRunLedger", "TenantId", "RunId");
 const chunkLedger  = table("NeptunePurgeChunkLedger", "RunKey", "ChunkId");
 const clusterLease = table("NeptunePurgeClusterLease", "ClusterResourceId", undefined, "ExpiresAt");
 
-// ---------- S3 manifest store ----------
+// ---------- S3 manifest store (tenant-scoped encryption) ----------
 const manifests = new aws.s3.Bucket("manifests", { bucketPrefix: `${prefix}-manifests-` });
 new aws.s3.BucketPublicAccessBlock("manifests-pab", {
     bucket: manifests.id,
     blockPublicAcls: true, blockPublicPolicy: true, ignorePublicAcls: true, restrictPublicBuckets: true,
 });
+// The bucket default is only a fallback. Writers always send SSEKMSKeyId (tenant key or platform key).
 new aws.s3.BucketServerSideEncryptionConfiguration("manifests-sse", {
     bucket: manifests.id,
-    rules: [{ applyServerSideEncryptionByDefault: { sseAlgorithm: "aws:kms" }, bucketKeyEnabled: true }],
+    rules: [{ applyServerSideEncryptionByDefault: { sseAlgorithm: "aws:kms", kmsMasterKeyId: platformKey.arn },
+              bucketKeyEnabled: true }],          // Bucket Keys work per KMS key, so they help per tenant too
 });
 new aws.s3.BucketLifecycleConfiguration("manifests-lc", {
     bucket: manifests.id,
     rules: [{ id: "expire-manifests", status: "Enabled", filter: {}, expiration: { days: 400 } }],
 });
+// v2.3: only tenant-tagged sessions may write, and only with the key named in their session tag.
+new aws.s3.BucketPolicy("manifests-policy", {
+    bucket: manifests.id,
+    policy: manifests.arn.apply(b =&gt; JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [
+            { Sid: "DenyUntaggedWriters", Effect: "Deny", Principal: "*",
+              Action: "s3:PutObject", Resource: `${b}/*`,
+              Condition: { Null: { "aws:PrincipalTag/TenantId": "true" } } },
+            { Sid: "DenyWrongKmsKey", Effect: "Deny", Principal: "*",
+              Action: "s3:PutObject", Resource: `${b}/*`,
+              Condition: { StringNotEquals: { "s3:x-amz-server-side-encryption-aws-kms-key-id": PT_KEY } } },
+            { Sid: "DenyInsecureTransport", Effect: "Deny", Principal: "*",
+              Action: "s3:*", Resource: [b, `${b}/*`],
+              Condition: { Bool: { "aws:SecureTransport": "false" } } },
+        ],
+    })),
+});
 
-// ---------- SQS: edge phase, vertex phase, shared DLQ ----------
+// ---------- SQS: edge phase, vertex phase, shared DLQ (pointers only, platform key) ----------
 const FOURTEEN_DAYS = 1_209_600;               // default is 4 days; 14 days is the maximum
 const dlq = new aws.sqs.Queue("chunk-dlq", {
     name: "NeptunePurgeChunkDLQ",
     messageRetentionSeconds: FOURTEEN_DAYS,    // &gt;= source queues (expiry uses original enqueue time)
-    sqsManagedSseEnabled: true,
+    kmsMasterKeyId: platformKey.arn,           // v2.3: was sqsManagedSseEnabled
+    kmsDataKeyReusePeriodSeconds: 3600,
 });
 const phaseQueue = (phase: "edge" | "vertex") =&gt; new aws.sqs.Queue(`${phase}-queue`, {
     name: `NeptunePurge${phase === "edge" ? "Edge" : "Vertex"}Queue`,
     messageRetentionSeconds: FOURTEEN_DAYS,
     visibilityTimeoutSeconds: 900,             // heartbeat with ChangeMessageVisibility (max 12h from receipt)
     receiveWaitTimeSeconds: 20,
-    sqsManagedSseEnabled: true,
+    kmsMasterKeyId: platformKey.arn,
+    kmsDataKeyReusePeriodSeconds: 3600,
     redrivePolicy: dlq.arn.apply(arn =&gt; JSON.stringify({ deadLetterTargetArn: arn, maxReceiveCount: 3 })),
 });
 const edgeQueue = phaseQueue("edge");
@@ -251,45 +330,140 @@ new aws.iam.RolePolicyAttachment("task-exec-attach", {
     policyArn: "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
 });
 
-// Discovery: read-only graph access, no delete rights anywhere.
-// The clone's resource ID is allocated at runtime, so scope by account/region; network isolation
-// (clone SG admits only discoverySg) limits which clusters the role can actually reach.
 const discoveryRole = new aws.iam.Role("discovery-role", { assumeRolePolicy: assume("ecs-tasks.amazonaws.com") });
+const executorRole = new aws.iam.Role("executor-role", { assumeRolePolicy: assume("ecs-tasks.amazonaws.com") });
+
+// v2.3: all S3 and tenant-key access goes through this role, assumed at container start with session tags
+// TenantId and TenantKmsKeyArn (values come from job parameters set by Step Functions from TenantConfig).
+// Tags guard against cross-tenant bugs, not compromised code (design 6.3).
+const tenantScopedStatements = (b: string, r: string, a: string, pk: string) =&gt; [
+    { Sid: "OwnPrefixOnly", Effect: "Allow", Action: ["s3:GetObject", "s3:PutObject"],
+      Resource: `${b}/${PT_TENANT}/*` },
+    { Sid: "ListOwnPrefix", Effect: "Allow", Action: "s3:ListBucket", Resource: b,
+      Condition: { StringLike: { "s3:prefix": [`${PT_TENANT}/*`] } } },
+    { Sid: "TenantKeyViaS3", Effect: "Allow", Action: ["kms:GenerateDataKey", "kms:Decrypt"],
+      Resource: `arn:aws:kms:${r}:${a}:key/*`,
+      Condition: { StringEquals: { "aws:ResourceTag/TenantId": PT_TENANT,
+                                   "kms:ViaService": `s3.${r}.amazonaws.com` } } },
+    { Sid: "PlatformKeyViaS3", Effect: "Allow", Action: ["kms:GenerateDataKey", "kms:Decrypt"],
+      Resource: pk, Condition: { StringEquals: { "kms:ViaService": `s3.${r}.amazonaws.com` } } },
+];
+const tagTrust = (principals: pulumi.Input&lt;string&gt;[]) =&gt; pulumi.all([pulumi.all(principals), region, accountId])
+    .apply(([p, r, a]) =&gt; JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow", Principal: { AWS: p }, Action: ["sts:AssumeRole", "sts:TagSession"],
+            Condition: {
+                StringLike: { "aws:RequestTag/TenantId": "?*",
+                              "aws:RequestTag/TenantKmsKeyArn": `arn:aws:kms:${r}:${a}:key/*` },
+                "ForAllValues:StringEquals": { "aws:TagKeys": ["TenantId", "TenantKmsKeyArn"] },
+            },
+        }],
+    }));
+const tenantDataRole = new aws.iam.Role("tenant-data-role", {
+    name: `${prefix}-tenant-data`,
+    // Role chaining (job role -&gt; this role) caps sessions at 1h. Containers use an auto-refreshing
+    // STS AssumeRole credentials provider with the same tags. They don't rely on maxSessionDuration.
+    assumeRolePolicy: tagTrust([discoveryRole.arn, executorRole.arn]),
+});
+new aws.iam.RolePolicy("tenant-data-policy", {
+    role: tenantDataRole.id,
+    policy: pulumi.all([manifests.arn, region, accountId, platformKey.arn]).apply(([b, r, a, pk]) =&gt;
+        JSON.stringify({ Version: "2012-10-17", Statement: tenantScopedStatements(b, r, a, pk) })),
+});
+
+// Discovery: read-only graph access, no delete rights anywhere. No direct S3 access (v2.3).
 new aws.iam.RolePolicy("discovery-policy", {
     role: discoveryRole.id,
-    policy: pulumi.all([manifests.arn, edgeQueue.arn, vertexQueue.arn, chunkLedger.arn, runLedger.arn, region, accountId])
-        .apply(([b, eq, vq, cl, rl, r, a]) =&gt; JSON.stringify({
+    policy: pulumi.all([edgeQueue.arn, vertexQueue.arn, chunkLedger.arn, runLedger.arn, tenantDataRole.arn,
+                        platformKey.arn, region, accountId])
+        .apply(([eq, vq, cl, rl, td, pk, r, a]) =&gt; JSON.stringify({
             Version: "2012-10-17",
             Statement: [
                 { Effect: "Allow", Action: ["neptune-db:ReadDataViaQuery"], Resource: `arn:aws:neptune-db:${r}:${a}:*/*` },
-                { Effect: "Allow", Action: ["s3:PutObject"], Resource: `${b}/*` },
+                { Effect: "Allow", Action: ["sts:AssumeRole", "sts:TagSession"], Resource: td },
                 { Effect: "Allow", Action: ["sqs:SendMessage"], Resource: [eq, vq] },
                 { Effect: "Allow", Action: ["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:GetItem"], Resource: [cl, rl] },
+                platformKeyUse(pk, r, ["sqs", "dynamodb"]),
             ],
         })),
 });
 
-// Executor: read + delete + query status on PRODUCTION cluster resource IDs only.
-const executorRole = new aws.iam.Role("executor-role", { assumeRolePolicy: assume("ecs-tasks.amazonaws.com") });
+// Executor: read + delete + query status on PRODUCTION cluster resource IDs only. No direct S3 access (v2.3).
 new aws.iam.RolePolicy("executor-policy", {
     role: executorRole.id,
-    policy: pulumi.all([manifests.arn, edgeQueue.arn, vertexQueue.arn, chunkLedger.arn, runLedger.arn,
-                        clusterLease.arn, tenantConfig.arn, region, accountId])
-        .apply(([b, eq, vq, cl, rl, lt, tc, r, a]) =&gt; JSON.stringify({
+    policy: pulumi.all([edgeQueue.arn, vertexQueue.arn, chunkLedger.arn, runLedger.arn,
+                        clusterLease.arn, tenantConfig.arn, tenantDataRole.arn, platformKey.arn, region, accountId])
+        .apply(([eq, vq, cl, rl, lt, tc, td, pk, r, a]) =&gt; JSON.stringify({
             Version: "2012-10-17",
             Statement: [
                 { Effect: "Allow",
                   Action: ["neptune-db:ReadDataViaQuery", "neptune-db:DeleteDataViaQuery", "neptune-db:GetQueryStatus"],
                   Resource: prodClusterResourceIds.map(id =&gt; `arn:aws:neptune-db:${r}:${a}:${id}/*`) },
-                { Effect: "Allow", Action: ["s3:GetObject"], Resource: `${b}/*` },
+                { Effect: "Allow", Action: ["sts:AssumeRole", "sts:TagSession"], Resource: td },
                 { Effect: "Allow", Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility",
-                    "sqs:GetQueueAttributes", "sqs:SendMessage"], Resource: [eq, vq] },
+                                            "sqs:GetQueueAttributes", "sqs:SendMessage"], Resource: [eq, vq] },
                 // TransactWriteItems is authorized per item action (UpdateItem / ConditionCheckItem)
                 { Effect: "Allow", Action: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem",
-                    "dynamodb:ConditionCheckItem", "dynamodb:Query"], Resource: [cl, rl, lt, tc] },
+                                            "dynamodb:ConditionCheckItem", "dynamodb:Query"], Resource: [cl, rl, lt, tc] },
+                // DescribeDBClusters every health cycle also detects Status = inaccessible-encryption-credentials
                 { Effect: "Allow", Action: ["cloudwatch:GetMetricData", "rds:DescribeDBClusters"], Resource: "*" },
+                platformKeyUse(pk, r, ["sqs", "dynamodb"]),
             ],
         })),
+});
+
+// v2.3: audit queries run under the same tenant-tagged pattern, from an approved audit principal.
+const auditRole = new aws.iam.Role("tenant-audit-role", {
+    name: `${prefix}-tenant-audit`,
+    assumeRolePolicy: tagTrust(auditPrincipalArns),
+});
+
+// ---------- v2.3: Athena audit: results bucket + one workgroup per TENANT_KEY tenant ----------
+const athenaResults = new aws.s3.Bucket("athena-results", { bucketPrefix: `${prefix}-athena-results-` });
+new aws.s3.BucketPublicAccessBlock("athena-results-pab", {
+    bucket: athenaResults.id,
+    blockPublicAcls: true, blockPublicPolicy: true, ignorePublicAcls: true, restrictPublicBuckets: true,
+});
+const workgroup = (name: string, kmsKeyArn: pulumi.Input&lt;string&gt;) =&gt; new aws.athena.Workgroup(name, {
+    name,
+    forceDestroy: false,
+    configuration: {
+        enforceWorkgroupConfiguration: true,   // callers can't override the output location or key
+        resultConfiguration: {
+            outputLocation: pulumi.interpolate`s3://${athenaResults.bucket}/${name}/`,
+            encryptionConfiguration: { encryptionOption: "SSE_KMS", kmsKeyArn },
+        },
+    },
+});
+const platformWorkgroup = workgroup(`${prefix}-audit-platform`, platformKey.arn);
+const tenantWorkgroups = tenantKeyTenants.map(t =&gt; workgroup(`${prefix}-audit-${t.tenantId}`, t.kmsKeyArn));
+new aws.iam.RolePolicy("tenant-audit-policy", {
+    role: auditRole.id,
+    policy: pulumi.all([manifests.arn, athenaResults.arn, region, accountId, platformKey.arn]).apply(([b, ar, r, a, pk]) =&gt;
+        JSON.stringify({
+            Version: "2012-10-17",
+            Statement: [
+                ...tenantScopedStatements(b, r, a, pk),
+                { Effect: "Allow", Action: ["athena:StartQueryExecution", "athena:GetQueryExecution", "athena:GetQueryResults"],
+                  Resource: `arn:aws:athena:${r}:${a}:workgroup/${prefix}-audit-${PT_TENANT}` },
+                { Effect: "Allow", Action: ["s3:GetObject", "s3:PutObject", "s3:GetBucketLocation"],
+                  Resource: [ar, `${ar}/${prefix}-audit-${PT_TENANT}/*`] },
+                { Effect: "Allow", Action: ["glue:GetDatabase", "glue:GetTable", "glue:GetPartitions"], Resource: "*" },
+                // Athena writes results with the workgroup key. The audit role needs GenerateDataKey on it
+                // (tenant key: TenantKeyViaS3 above; platform key: PlatformKeyViaS3 above).
+            ],
+        })),
+});
+// Glue database/table: not shown (JSON SerDe, partition projection on tenant/run).
+// Queries must filter on the tenant partition. The S3 prefix grant above enforces this.
+
+// ---------- CloudWatch Logs (platform key) ----------
+const batchLogs = new aws.cloudwatch.LogGroup("batch-logs", {
+    name: `/aws/batch/${prefix}`, retentionInDays: 90, kmsKeyId: platformKey.arn,   // v2.3
+});
+const sfnLogs = new aws.cloudwatch.LogGroup("sfn-logs", {
+    name: `/aws/vendedlogs/states/${prefix}`, retentionInDays: 90, kmsKeyId: platformKey.arn,
 });
 
 // ---------- AWS Batch ----------
@@ -309,6 +483,7 @@ const jobQueue = (name: string, ce: aws.batch.ComputeEnvironment) =&gt; new aws.
 const discoveryQueue = jobQueue("discovery", spotCe);
 const executionQueue = jobQueue("execution", odCe);
 
+const EXIT_TENANT_KEY_UNAVAILABLE = 78;          // v2.3: container exit code for KMS key errors
 const jobDef = (name: string, tag: string, role: aws.iam.Role, vcpu: string, memMiB: string, timeoutSec: number) =&gt;
     new aws.batch.JobDefinition(name, {
         name: `${prefix}-${name}`,
@@ -318,69 +493,90 @@ const jobDef = (name: string, tag: string, role: aws.iam.Role, vcpu: string, mem
         retryStrategy: {
             attempts: 3,
             evaluateOnExits: [
-                { onStatusReason: "Host EC2*", action: "RETRY" },    // Fargate Spot reclaim
+                { onExitCode: String(EXIT_TENANT_KEY_UNAVAILABLE), action: "EXIT" },  // never retry key loss
+                { onStatusReason: "Host EC2*", action: "RETRY" },                     // Fargate Spot reclaim
                 { onReason: "*", action: "EXIT" },
             ],
         },
-        containerProperties: pulumi.all([repo.repositoryUrl, execRole.arn, role.arn])
-            .apply(([url, exec, job]) =&gt; JSON.stringify({
+        containerProperties: pulumi.all([repo.repositoryUrl, execRole.arn, role.arn, tenantDataRole.arn,
+                                         manifests.bucket, batchLogs.name, region])
+            .apply(([url, exec, job, td, bucket, lg, r]) =&gt; JSON.stringify({
                 image: `${url}:${tag}`,
                 executionRoleArn: exec,
                 jobRoleArn: job,
                 runtimePlatform: { operatingSystemFamily: "LINUX", cpuArchitecture: "X86_64" }, // Spot: no ARM64
                 resourceRequirements: [{ type: "VCPU", value: vcpu }, { type: "MEMORY", value: memMiB }],
                 networkConfiguration: { assignPublicIp: "DISABLED" },
-                logConfiguration: { logDriver: "awslogs" },
+                environment: [
+                    { name: "TENANT_DATA_ROLE_ARN", value: td },   // assumed at start with TenantId/TenantKmsKeyArn tags
+                    { name: "MANIFEST_BUCKET", value: bucket },
+                    { name: "EXIT_CODE_KEY_UNAVAILABLE", value: String(EXIT_TENANT_KEY_UNAVAILABLE) },
+                ],
+                logConfiguration: { logDriver: "awslogs",
+                    options: { "awslogs-group": lg, "awslogs-region": r, "awslogs-stream-prefix": name } },
             })),
     });
+
 const DISCOVERY_TIMEOUT = 6 * 3600;             // the reaper must never key on age below this
-const discoveryJob = jobDef("discovery", "discovery-1.1.0", discoveryRole, "2", "4096", DISCOVERY_TIMEOUT);
-const executorJob = jobDef("executor", "executor-1.1.0", executorRole, "1", "2048", 7 * 3600);
+const discoveryJob = jobDef("discovery", "discovery-1.2.0", discoveryRole, "2", "4096", DISCOVERY_TIMEOUT);
+const executorJob = jobDef("executor", "executor-1.2.0", executorRole, "1", "2048", 7 * 3600);
 
 // ---------- Step Functions (orchestrator + reaper) ----------
-const sfnLogs = new aws.cloudwatch.LogGroup("sfn-logs", { name: `/aws/vendedlogs/states/${prefix}`, retentionInDays: 90 });
 const sfnRole = new aws.iam.Role("sfn-role", { assumeRolePolicy: assume("states.amazonaws.com") });
 new aws.iam.RolePolicy("sfn-policy", {
     role: sfnRole.id,
-    policy: JSON.stringify({
+    policy: pulumi.all([platformKey.arn, region, accountId]).apply(([pk, r, a]) =&gt; JSON.stringify({
         Version: "2012-10-17",
         Statement: [
             // Neptune management APIs authorize with the rds: prefix
             { Effect: "Allow", Action: ["rds:RestoreDBClusterToPointInTime", "rds:CreateDBInstance",
-                "rds:DescribeDBClusters", "rds:DescribeDBInstances", "rds:AddTagsToResource",
-                "rds:ListTagsForResource"], Resource: "*" },
+                                        "rds:DescribeDBClusters", "rds:DescribeDBInstances", "rds:AddTagsToResource",
+                                        "rds:ListTagsForResource"], Resource: "*" },
             // Destructive actions only on clone-named resources
             { Effect: "Allow", Action: ["rds:DeleteDBInstance", "rds:DeleteDBCluster"],
               Resource: ["arn:aws:rds:*:*:cluster:neptune-clone-*", "arn:aws:rds:*:*:db:neptune-clone-*"] },
+            // v2.3: key preflight, plus the grant Neptune needs to restore an encrypted cluster.
+            // Tenant key policies must also allow these (section 3).
+            { Effect: "Allow", Action: "kms:DescribeKey", Resource: `arn:aws:kms:${r}:${a}:key/*` },
+            { Effect: "Allow", Action: "kms:CreateGrant", Resource: `arn:aws:kms:${r}:${a}:key/*`,
+              Condition: { StringEquals: { "kms:ViaService": `rds.${r}.amazonaws.com` },
+                           Bool: { "kms:GrantIsForAWSResource": "true" } } },
+            platformKeyUse(pk, r, ["dynamodb", "states"]),
+            { Effect: "Allow", Action: "cloudwatch:PutMetricData", Resource: "*",
+              Condition: { StringEquals: { "cloudwatch:namespace": "NeptunePurge/MultiTenant" } } },
             { Effect: "Allow", Action: ["batch:SubmitJob", "batch:DescribeJobs", "batch:TerminateJob"], Resource: "*" },
             { Effect: "Allow", Action: ["events:PutTargets", "events:PutRule", "events:DescribeRule"], Resource: "*" },
             { Effect: "Allow", Action: ["dynamodb:Query", "dynamodb:GetItem", "dynamodb:PutItem",
-                "dynamodb:UpdateItem", "dynamodb:DeleteItem"], Resource: "*" },
+                                        "dynamodb:UpdateItem", "dynamodb:DeleteItem"], Resource: "*" },
             { Effect: "Allow", Action: ["states:DescribeExecution"], Resource: "*" },   // reaper: owner still RUNNING?
             { Effect: "Allow", Action: ["logs:CreateLogDelivery", "logs:GetLogDelivery", "logs:UpdateLogDelivery",
-                "logs:DeleteLogDelivery", "logs:ListLogDeliveries", "logs:PutResourcePolicy",
-                "logs:DescribeResourcePolicies", "logs:DescribeLogGroups"], Resource: "*" },
+                                        "logs:DeleteLogDelivery", "logs:ListLogDeliveries", "logs:PutResourcePolicy",
+                                        "logs:DescribeResourcePolicies", "logs:DescribeLogGroups"], Resource: "*" },
         ],
-    }),
+    })),
 });
 
 const render = (file: string) =&gt; pulumi.all([tenantConfig.name, runLedger.name, chunkLedger.name, clusterLease.name,
         discoveryQueue.arn, discoveryJob.arn, executionQueue.arn, executorJob.arn,
-        cloneSubnets.name, cloneSg.id, cloneParams.name, edgeQueue.url, vertexQueue.url])
-    .apply(([tc, rl, cl, lt, dq, dj, eq, ej, sn, sg, pg, equ, vqu]) =&gt; fs.readFileSync(file, "utf8")
+        cloneSubnets.name, cloneSg.id, cloneParams.name, edgeQueue.url, vertexQueue.url, platformKey.arn])
+    .apply(([tc, rl, cl, lt, dq, dj, eq, ej, sn, sg, pg, equ, vqu, pk]) =&gt; fs.readFileSync(file, "utf8")
         .replace(/\$\{TenantTable\}/g, tc).replace(/\$\{LedgerTable\}/g, rl)
         .replace(/\$\{ChunkTable\}/g, cl).replace(/\$\{LeaseTable\}/g, lt)
         .replace(/\$\{DiscoveryQueue\}/g, dq).replace(/\$\{DiscoveryJobDef\}/g, dj)
         .replace(/\$\{ExecutionQueue\}/g, eq).replace(/\$\{ExecutorJobDef\}/g, ej)
         .replace(/\$\{CloneSubnetGroup\}/g, sn).replace(/\$\{CloneSg\}/g, sg)
         .replace(/\$\{CloneParamGroup\}/g, pg)
-        .replace(/\$\{EdgeQueueUrl\}/g, equ).replace(/\$\{VertexQueueUrl\}/g, vqu));
+        .replace(/\$\{EdgeQueueUrl\}/g, equ).replace(/\$\{VertexQueueUrl\}/g, vqu)
+        .replace(/\$\{PlatformKeyArn\}/g, pk));
 
 const stateMachine = (name: string, file: string) =&gt; new aws.sfn.StateMachine(name, {
     name: `${prefix}-${name}`,
     type: "STANDARD",                            // runs last hours; Express caps at 5 minutes
     roleArn: sfnRole.arn,
     loggingConfiguration: { logDestination: pulumi.interpolate`${sfnLogs.arn}:*`, includeExecutionData: false, level: "ERROR" },
+    encryptionConfiguration: {                   // v2.3: execution history under the platform key
+        type: "CUSTOMER_MANAGED_KMS_KEY", kmsKeyId: platformKey.arn, kmsDataKeyReusePeriodSeconds: 300,
+    },
     definition: render(file),
 });
 const purgeSm = stateMachine("orchestrator", "orchestrator.asl.json");
@@ -390,9 +586,14 @@ const reaperSm = stateMachine("clone-reaper", "reaper.asl.json");
 const schedRole = new aws.iam.Role("scheduler-role", { assumeRolePolicy: assume("scheduler.amazonaws.com") });
 new aws.iam.RolePolicy("scheduler-policy", {
     role: schedRole.id,
-    policy: pulumi.all([purgeSm.arn, reaperSm.arn]).apply(arns =&gt; JSON.stringify({
+    policy: pulumi.all([purgeSm.arn, reaperSm.arn, platformKey.arn, region]).apply(([p, rp, pk, r]) =&gt; JSON.stringify({
         Version: "2012-10-17",
-        Statement: [{ Effect: "Allow", Action: "states:StartExecution", Resource: arns }],
+        Statement: [
+            { Effect: "Allow", Action: "states:StartExecution", Resource: [p, rp] },
+            // Starting an execution of a CMK-encrypted state machine encrypts its input with the key
+            { Effect: "Allow", Action: ["kms:GenerateDataKey", "kms:Decrypt"], Resource: pk,
+              Condition: { StringEquals: { "kms:ViaService": `states.${r}.amazonaws.com` } } },
+        ],
     })),
 });
 new aws.scheduler.Schedule("weekly-purge", {
@@ -410,39 +611,51 @@ new aws.scheduler.Schedule("clone-reaper", {
 });
 
 // ---------- CloudWatch alarms ----------
-new aws.cloudwatch.MetricAlarm("dlq-not-empty", {
-    namespace: "AWS/SQS", metricName: "ApproximateNumberOfMessagesVisible",
-    dimensions: { QueueName: dlq.name },
-    statistic: "Maximum", period: 300, evaluationPeriods: 1,
-    threshold: 0, comparisonOperator: "GreaterThanThreshold", treatMissingData: "notBreaching",
-});
-new aws.cloudwatch.MetricAlarm("circuit-breaker", {
-    namespace: "NeptunePurge/MultiTenant", metricName: "CircuitBreakerTripped",
-    statistic: "Sum", period: 300, evaluationPeriods: 1,
-    threshold: 3, comparisonOperator: "GreaterThanOrEqualToThreshold", treatMissingData: "notBreaching",
-});
-new aws.cloudwatch.MetricAlarm("uncertain-outcomes", {
-    namespace: "NeptunePurge/MultiTenant", metricName: "RecordsUncertain",
-    statistic: "Sum", period: 300, evaluationPeriods: 1,
-    threshold: 0, comparisonOperator: "GreaterThanThreshold", treatMissingData: "notBreaching",
-});
+const ns = "NeptunePurge/MultiTenant";
+const anyAbove = (name: string, namespace: string, metricName: string, threshold: number,
+                  dimensions?: Record&lt;string, pulumi.Input&lt;string&gt;&gt;) =&gt;
+    new aws.cloudwatch.MetricAlarm(name, {
+        namespace, metricName, dimensions,
+        statistic: "Sum", period: 300, evaluationPeriods: 1,
+        threshold, comparisonOperator: "GreaterThanThreshold", treatMissingData: "notBreaching",
+    });
+anyAbove("dlq-not-empty", "AWS/SQS", "ApproximateNumberOfMessagesVisible", 0, { QueueName: dlq.name });
+anyAbove("circuit-breaker", ns, "CircuitBreakerTripped", 2);
+anyAbove("uncertain-outcomes", ns, "RecordsUncertain", 0);
+// v2.3: key alarms (emitted by the Step Functions preflight with PutMetricData; route to tenant operations)
+anyAbove("key-mismatch", ns, "KeyMismatch", 0);
+anyAbove("clone-stuck-key-unavailable", ns, "CloneStuckKeyUnavailable", 0);
+for (const t of tenantKeyTenants) {
+    anyAbove(`key-unavailable-${t.tenantId}`, ns, "TenantKeyUnavailable", 0, { TenantId: t.tenantId });
+    // BYOK with expiring material. Alarm when fewer than 2 x MinKeyMaterialValidityHours (default 48) remain.
+    new aws.cloudwatch.MetricAlarm(`key-material-expiring-${t.tenantId}`, {
+        namespace: ns, metricName: "KeyMaterialHoursRemaining", dimensions: { TenantId: t.tenantId },
+        statistic: "Minimum", period: 3600, evaluationPeriods: 1,
+        threshold: 96, comparisonOperator: "LessThanThreshold",
+        treatMissingData: "notBreaching",      // not emitted for keys whose material doesn't expire
+    });
+}
 
 export const orchestratorArn = purgeSm.arn;
 export const reaperArn = reaperSm.arn;
 export const manifestBucket = manifests.bucket;
 export const edgeQueueUrl = edgeQueue.url;
-export const vertexQueueUrl = vertexQueue.url;</code></pre>
+export const vertexQueueUrl = vertexQueue.url;
+export const platformKeyArn = platformKey.arn;
+// v2.3: consumed by the tenant onboarding stack to write tenant key policies (section 3)
+export const purgeSfnRoleArn = sfnRole.arn;
+export const tenantDataRoleArn = tenantDataRole.arn;
+export const tenantAuditRoleArn = auditRole.arn;
+export const tenantWorkgroupNames = tenantWorkgroups.map(w =&gt; w.name);
+export const platformWorkgroupName = platformWorkgroup.name;</code></pre>
 
-        <h3>2. Step Functions Clone Lifecycle (ASL excerpt, JSONPath)</h3>
-        <p>The clone lifecycle from section 4.1 of the <a href="neptune_decoupled_purge_design-v2.2.html">v2.2 design</a>. <code>${...}</code> placeholders are filled in by the Pulumi program above. AWS SDK integrations take PascalCase parameter names in the SDK's own casing (<code>DbClusterIdentifier</code>, <code>EnableIamDatabaseAuthentication</code>), which differs from the API reference's <code>DBClusterIdentifier</code>.</p>
+        <h3>2. Step Functions Clone Lifecycle (ASL excerpt, JSONPath with per-state JSONata)</h3>
+        <p>The clone lifecycle from section 4.1 and the key preflight from section 6.2 of the <a href="neptune_decoupled_purge_design-v2.3.html">v2.3 design</a>. <code>${...}</code> placeholders are filled in by the Pulumi program above. AWS SDK integrations take PascalCase parameter names in the SDK's own casing (<code>DbClusterIdentifier</code>, <code>EnableIamDatabaseAuthentication</code>). The key comparisons use <code>"QueryLanguage": "JSONata"</code> on individual states, because JSONPath Choice rules can't do time arithmetic or test for a missing <code>KmsKeyId</code> on an unencrypted cluster.</p>
 <pre><code>"PreflightSource": {
   "Type": "Task",
   "Resource": "arn:aws:states:::aws-sdk:neptune:describeDBClusters",
   "Parameters": { "DbClusterIdentifier.$": "$.tenant.SourceClusterIdentifier" },
-  "ResultSelector": {
-    "Status.$": "$.DbClusters[0].Status",
-    "LatestRestorableTime.$": "$.DbClusters[0].LatestRestorableTime"
-  },
+  "ResultSelector": { "Cluster.$": "$.DbClusters[0]" },   // whole object: KmsKeyId is absent if unencrypted
   "ResultPath": "$.source",
   "Next": "SourceRestorable?"
 },
@@ -450,14 +663,70 @@ export const vertexQueueUrl = vertexQueue.url;</code></pre>
   "Type": "Choice",
   "Choices": [{
     "And": [
-      { "Variable": "$.source.Status", "StringEquals": "available" },
-      { "Variable": "$.source.LatestRestorableTime", "IsPresent": true },
-      { "Not": { "Variable": "$.source.LatestRestorableTime", "IsNull": true } }
+      { "Variable": "$.source.Cluster.Status", "StringEquals": "available" },
+      { "Variable": "$.source.Cluster.LatestRestorableTime", "IsPresent": true },
+      { "Not": { "Variable": "$.source.Cluster.LatestRestorableTime", "IsNull": true } }
     ],
-    "Next": "CreateClone"
+    "Next": "SourceEncryption?"
   }],
   "Default": "FailPreflight"                 // never fall back to a full-copy restore
 },
+
+// ---------- v2.3: key preflight (design 6.2). Per-state JSONata for the comparisons. ----------
+"SourceEncryption?": {
+  "Type": "Choice",
+  "QueryLanguage": "JSONata",
+  "Choices": [
+    { "Condition": "{% $states.input.tenant.Encryption.EncryptionMode = 'TENANT_KEY' and ($states.input.source.Cluster.StorageEncrypted != true or $states.input.source.Cluster.KmsKeyId != $states.input.tenant.Encryption.TenantKmsKeyArn) %}",
+      "Next": "SkipKeyMismatch" },
+    { "Condition": "{% $states.input.source.Cluster.StorageEncrypted = true %}", "Next": "DescribeSourceKey" }
+  ],
+  "Default": "ResolveManifestKey"            // unencrypted PLATFORM_KEY cluster: no key to check
+},
+"DescribeSourceKey": {
+  "Type": "Task",
+  "Resource": "arn:aws:states:::aws-sdk:kms:describeKey",
+  "Parameters": { "KeyId.$": "$.source.Cluster.KmsKeyId" },
+  "ResultSelector": { "KeyMetadata.$": "$.KeyMetadata" },  // ValidTo / ExpirationModel only for BYOK
+  "ResultPath": "$.key",
+  "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "SkipKeyUnavailable" }],
+  "Next": "KeyUsable?"
+},
+"KeyUsable?": {
+  "Type": "Choice",
+  "QueryLanguage": "JSONata",
+  "Choices": [
+    { "Condition": "{% $states.input.key.KeyMetadata.KeyState != 'Enabled' %}", "Next": "SkipKeyUnavailable" },
+    { "Condition": "{% $states.input.key.KeyMetadata.ExpirationModel = 'KEY_MATERIAL_EXPIRES' and $toMillis($states.input.key.KeyMetadata.ValidTo) &lt; $millis() + $states.input.tenant.Encryption.MinKeyMaterialValidityHours * 3600000 %}",
+      "Next": "SkipKeyExpiring" }
+  ],
+  "Default": "ResolveManifestKey"
+  // BYOK with expiring material: also PutMetricData KeyMaterialHoursRemaining{TenantId} (not shown)
+},
+"ResolveManifestKey": {                       // the key every S3 write in this run must name
+  "Type": "Pass",
+  "QueryLanguage": "JSONata",
+  "Output": "{% $merge([$states.input, { 'manifestKeyArn': $states.input.tenant.Encryption.EncryptionMode = 'TENANT_KEY' ? $states.input.tenant.Encryption.TenantKmsKeyArn : '${PlatformKeyArn}' }]) %}",
+  "Next": "CreateClone"
+},
+"SkipKeyMismatch":    { "Type": "Pass", "Result": "KEY_MISMATCH",           "ResultPath": "$.skipReason", "Next": "RecordSkip" },
+"SkipKeyUnavailable": { "Type": "Pass", "Result": "TENANT_KEY_UNAVAILABLE", "ResultPath": "$.skipReason", "Next": "RecordSkip" },
+"SkipKeyExpiring":    { "Type": "Pass", "Result": "TENANT_KEY_EXPIRING",    "ResultPath": "$.skipReason", "Next": "RecordSkip" },
+"RecordSkip": {
+  "Type": "Task",
+  "Resource": "arn:aws:states:::dynamodb:updateItem",
+  "Parameters": {
+    "TableName": "${LedgerTable}",
+    "Key": { "TenantId": { "S.$": "$.tenant.TenantId" }, "RunId": { "S.$": "$.runId" } },
+    "UpdateExpression": "SET RunStatus = :s, SkipReason = :r",
+    "ExpressionAttributeValues": { ":s": { "S": "SKIPPED" }, ":r": { "S.$": "$.skipReason" } }
+  },
+  "ResultPath": null,
+  "Next": "EmitKeyMetric"
+  // EmitKeyMetric: aws-sdk:cloudwatch:putMetricData TenantKeyUnavailable or KeyMismatch {TenantId} -&gt; Succeed
+  // No clone was created and no delete was sent. An outstanding PAUSED run stays PAUSED.
+},
+
 "CreateClone": {
   "Type": "Task",
   "Resource": "arn:aws:states:::aws-sdk:neptune:restoreDBClusterToPointInTime",
@@ -467,6 +736,7 @@ export const vertexQueueUrl = vertexQueue.url;</code></pre>
     "RestoreType": "copy-on-write",
     "UseLatestRestorableTime": true,
     "EnableIamDatabaseAuthentication": true,               // API default is false
+    // v2.3: no KmsKeyId. The clone inherits the source cluster's key (tenant key or platform key).
     "DeletionProtection": false,
     "DbSubnetGroupName": "${CloneSubnetGroup}",
     "VpcSecurityGroupIds": ["${CloneSg}"],
@@ -482,7 +752,7 @@ export const vertexQueueUrl = vertexQueue.url;</code></pre>
   "Retry": [{ "ErrorEquals": ["Neptune.InsufficientDbClusterCapacityException"], "MaxAttempts": 3, "BackoffRate": 2 }],
   "Catch": [
     { "ErrorEquals": ["Neptune.DbClusterAlreadyExistsException"], "ResultPath": "$.error", "Next": "WaitClusterAvailable" },
-    { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "CleanupClone" }
+    { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "CleanupClone" }   // incl. KMS access denied
   ],
   "Next": "WaitClusterAvailable"
 },
@@ -491,14 +761,27 @@ export const vertexQueueUrl = vertexQueue.url;</code></pre>
   "Type": "Task",
   "Resource": "arn:aws:states:::aws-sdk:neptune:describeDBClusters",
   "Parameters": { "DbClusterIdentifier.$": "$.cloneClusterId" },
-  "ResultSelector": { "Status.$": "$.DbClusters[0].Status" },
+  "ResultSelector": { "Cluster.$": "$.DbClusters[0]" },
   "ResultPath": "$.cloneStatus",
   "Next": "ClusterReady?"
 },
 "ClusterReady?": {
   "Type": "Choice",
-  "Choices": [{ "Variable": "$.cloneStatus.Status", "StringEquals": "available", "Next": "CreateCloneInstance" }],
+  "Choices": [
+    { "Variable": "$.cloneStatus.Cluster.Status", "StringEquals": "inaccessible-encryption-credentials",
+      "Next": "KeyLostDuringClone" },        // v2.3: terminal. Set FailureReason, then CleanupClone.
+    { "Variable": "$.cloneStatus.Cluster.Status", "StringEquals": "available", "Next": "CloneKeyMatches?" }
+  ],
   "Default": "WaitClusterAvailable"           // bound with a loop counter or state-level TimeoutSeconds
+},
+"CloneKeyMatches?": {                          // v2.3: the clone must use the same key as the source
+  "Type": "Choice",
+  "QueryLanguage": "JSONata",
+  "Choices": [{
+    "Condition": "{% $states.input.source.Cluster.StorageEncrypted = false or ($states.input.cloneStatus.Cluster.StorageEncrypted = true and $states.input.cloneStatus.Cluster.KmsKeyId = $states.input.source.Cluster.KmsKeyId) %}",
+    "Next": "CreateCloneInstance"
+  }],
+  "Default": "CloneKeyMismatch"               // Pass FailureReason=CLONE_KEY_MISMATCH -&gt; CleanupClone
 },
 "CreateCloneInstance": {
   "Type": "Task",
@@ -524,16 +807,81 @@ export const vertexQueueUrl = vertexQueue.url;</code></pre>
     "ContainerOverrides": { "Environment": [
       { "Name": "CLONE_ENDPOINT", "Value.$": "$.cloneEndpoint" },
       { "Name": "RUN_KEY", "Value.$": "$.runKey" },
-      { "Name": "CUTOFF_EPOCH", "Value.$": "States.Format('{}', $.cutoffEpoch)" }
+      { "Name": "CUTOFF_EPOCH", "Value.$": "States.Format('{}', $.cutoffEpoch)" },
+      // v2.3: session tags for the tenant-data role, and the SSEKMSKeyId for every PutObject
+      { "Name": "TENANT_ID", "Value.$": "$.tenant.TenantId" },
+      { "Name": "TENANT_KMS_KEY_ARN", "Value.$": "$.manifestKeyArn" }
     ]}
   },
   "ResultPath": "$.discovery",
   "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "CleanupClone" }],
+  // Exit code 78 = tenant key unavailable: CleanupClone, then run FAILED with FailureReason=TENANT_KEY_UNAVAILABLE
   "Next": "CleanupClone"
 }
 // CleanupClone: deleteDBInstance → wait/describe until gone → deleteDBCluster { "SkipFinalSnapshot": true }
-//               → wait/describe until DbClusterNotFoundFault → persist CloneCleanupStatus → route on $.error</code></pre>
-        <p class="muted">Before deploying, validate with <code>aws stepfunctions validate-state-machine-definition</code> and a test execution against a disposable cluster. Pulumi resource and property names target <code>@pulumi/aws</code> v7. The Pulumi Registry lookup was only partly available during this review (<code>neptune.Cluster</code>, <code>scheduler.Schedule</code> and <code>batch.ComputeEnvironment</code> were verified), so run <code>pulumi preview</code> and <code>tsc</code> before deploying.</p>
+//               → wait/describe until DbClusterNotFoundFault → persist CloneCleanupStatus → route on $.error
+//               v2.3: if delete is rejected for an inaccessible-encryption-credentials clone,
+//               PutMetricData CloneStuckKeyUnavailable and leave it for the reaper / manual action.
+// RunExecutor: same TENANT_ID / TENANT_KMS_KEY_ARN overrides (executor only reads manifests).</code></pre>
+
+        <h3>3. Tenant Key Policy Statements (tenant onboarding stack)</h3>
+        <p>The stack that owns each tenant's cluster and key adds these statements. It reads the purge role ARNs from this stack's outputs. Each tenant key must carry a <code>TenantId</code> tag, because the tenant-data role's IAM policy matches keys by <code>aws:ResourceTag/TenantId</code>. For BYOK, <code>aws.kms.ExternalKey</code> creates the key and imports the material. The purge preflight reads <code>Origin</code>, <code>ExpirationModel</code> and <code>ValidTo</code> from <code>DescribeKey</code>, so nothing BYOK-specific is stored in <code>TenantConfig</code>.</p>
+<pre><code>// Tenant onboarding stack (owns tenant clusters and keys). Not the purge stack.
+import * as pulumi from "@pulumi/pulumi";
+import * as aws from "@pulumi/aws";
+
+const purge = new pulumi.StackReference("org/neptune-purge/prod");
+const sfnRoleArn = purge.requireOutput("purgeSfnRoleArn");
+const tenantDataRoleArn = purge.requireOutput("tenantDataRoleArn");
+const tenantAuditRoleArn = purge.requireOutput("tenantAuditRoleArn");
+const region = aws.getRegionOutput().name;
+const accountId = aws.getCallerIdentityOutput().accountId;
+
+// Statements every TENANT_KEY key policy must contain for the purge engine (design 6.3 (a)).
+export const purgeKeyPolicyStatements = (tenantId: string) =&gt;
+    pulumi.all([sfnRoleArn, tenantDataRoleArn, tenantAuditRoleArn, region]).apply(([sfn, data, audit, r]) =&gt; [
+        { Sid: "PurgeCloneGrant", Effect: "Allow", Principal: { AWS: sfn },
+          Action: "kms:CreateGrant", Resource: "*",
+          Condition: { StringEquals: { "kms:ViaService": `rds.${r}.amazonaws.com` },
+                       Bool: { "kms:GrantIsForAWSResource": "true" } } },
+        { Sid: "PurgePreflightDescribe", Effect: "Allow", Principal: { AWS: sfn },
+          Action: "kms:DescribeKey", Resource: "*" },
+        { Sid: "PurgeManifestCrypto", Effect: "Allow", Principal: { AWS: [data, audit] },
+          Action: ["kms:GenerateDataKey", "kms:Decrypt"], Resource: "*",
+          Condition: { StringEquals: { "kms:ViaService": `s3.${r}.amazonaws.com`,
+                                       "aws:PrincipalTag/TenantId": tenantId } } },
+    ]);
+
+const keyPolicy = (tenantId: string) =&gt; pulumi.all([accountId, purgeKeyPolicyStatements(tenantId)])
+    .apply(([a, purgeStatements]) =&gt; JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [
+            { Sid: "AccountAdmin", Effect: "Allow", Principal: { AWS: `arn:aws:iam::${a}:root` },
+              Action: "kms:*", Resource: "*" },
+            // ... the tenant's own statements (Neptune service use, key administrators) ...
+            ...purgeStatements,
+        ],
+    }));
+
+// AWS-generated tenant key
+const fin042 = new aws.kms.Key("tenant-eu-fin-042", {
+    description: "tenant-eu-fin-042 data key",
+    enableKeyRotation: true,
+    policy: keyPolicy("tenant-eu-fin-042"),
+    tags: { TenantId: "tenant-eu-fin-042" },    // required: purge IAM uses aws:ResourceTag/TenantId
+});
+
+// BYOK tenant key (imported material, Origin=EXTERNAL)
+const cfg = new pulumi.Config();
+const byok = new aws.kms.ExternalKey("tenant-eu-bank-007", {
+    description: "tenant-eu-bank-007 BYOK key",
+    policy: keyPolicy("tenant-eu-bank-007"),
+    keyMaterialBase64: cfg.requireSecret("bank007KeyMaterial"),   // 256-bit material; provider wraps it with the import token
+    validTo: "2027-11-30T00:00:00Z",                              // purge preflight checks ValidTo
+    tags: { TenantId: "tenant-eu-bank-007" },
+});
+// The cluster takes the key at creation: aws.neptune.Cluster({ storageEncrypted: true, kmsKeyArn: byok.arn, ... })</code></pre>
+        <p class="muted">Before deploying, validate with <code>aws stepfunctions validate-state-machine-definition</code> and run a test execution against a disposable encrypted cluster: one with a tenant key, one with a disabled key, and one with BYOK material that expires soon. Check that the <code>describeKey</code> SDK integration returns <code>ValidTo</code> in a format <code>$toMillis</code> accepts. Sections 1 and 3 type-check cleanly with <code>tsc --strict</code> against <code>@pulumi/aws</code> 7.x (2026-11-19). Run <code>pulumi preview</code> before deploying, because a type-check doesn't prove that the IAM and key policies are sufficient.</p>
     </section>
 
 </body>

@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neptune Purge Engine v2.3</title>
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --bg-card: #1e293b;
+            --bg-card-alt: #162032;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-blue: #38bdf8;
+            --accent-indigo: #818cf8;
+            --accent-emerald: #34d399;
+            --accent-amber: #fbbf24;
+            --accent-rose: #fb7185;
+            --border-color: #334155;
+            --code-bg: #0b1120;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            line-height: 1.6;
+            padding: 2rem 3rem;
+            max-width: 1440px;
+            margin: 0 auto;
+        }
+        @media (max-width: 720px) { body { padding: 1rem 16px; } }
+        header {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 1.75rem; margin-bottom: 2.5rem;
+            display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1rem;
+        }
+        .title-group h1 { font-size: 2.1rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.4rem; }
+        .title-group p { color: var(--text-muted); font-size: 1.05rem; }
+        .meta-badges { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+        .badge {
+            padding: 0.35rem 0.85rem; border-radius: 9999px; font-size: 0.8rem; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.05em; background: var(--bg-card); border: 1px solid var(--border-color);
+        }
+        .badge.blue { color: var(--accent-blue); border-color: rgba(56,189,248,0.3); }
+        .badge.emerald { color: var(--accent-emerald); border-color: rgba(52,211,153,0.3); }
+        .badge.amber { color: var(--accent-amber); border-color: rgba(251,191,36,0.3); }
+        .badge.indigo { color: var(--accent-indigo); border-color: rgba(129,140,248,0.3); }
+        .badge.rose { color: var(--accent-rose); border-color: rgba(251,113,133,0.3); }
+        h2 {
+            font-size: 1.5rem; font-weight: 600; color: var(--accent-blue); margin: 2.5rem 0 1.25rem;
+            display: flex; align-items: center; gap: 0.6rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;
+        }
+        h3 { font-size: 1.15rem; font-weight: 600; margin: 1.25rem 0 0.75rem; }
+        p { margin-bottom: 1rem; color: #cbd5e1; }
+        a { color: var(--accent-blue); }
+        .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(450px, 100%), 1fr)); gap: 1.5rem; margin-bottom: 1.5rem; }
+        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 1.5rem; margin-bottom: 1.5rem; }
+        .card { background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 4px 20px rgba(0,0,0,0.25); min-width: 0; }
+        .card-header {
+            display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;
+            padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color); flex-wrap: wrap; gap: 0.5rem;
+        }
+        .card-header h3 { margin: 0; font-size: 1.15rem; }
+        .diagram-container { background-color: var(--code-bg); border: 1px solid var(--border-color); border-radius: 0.75rem; padding: 1.5rem; margin: 1.5rem 0; overflow-x: auto; text-align: center; }
+        .diagram-caption { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.75rem; text-align: center; }
+        .table-wrap { overflow-x: auto; margin: 1.25rem 0; border-radius: 0.75rem; border: 1px solid var(--border-color); }
+        table { width: 100%; border-collapse: collapse; background-color: var(--bg-card); }
+        .card table { border: 1px solid var(--border-color); border-radius: 0.5rem; margin: 0.5rem 0 1rem; }
+        th, td { padding: 0.85rem 1rem; text-align: left; border-bottom: 1px solid var(--border-color); font-size: 0.9rem; vertical-align: top; }
+        th { background-color: var(--bg-card-alt); color: var(--accent-blue); font-weight: 600; text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.04em; }
+        tr:last-child td { border-bottom: none; }
+        tr.recommended-row { background-color: rgba(52,211,153,0.08); border-left: 4px solid var(--accent-emerald); }
+        ul, ol { padding-left: 1.4rem; margin-bottom: 1rem; color: #cbd5e1; }
+        li { margin-bottom: 0.45rem; }
+        code, pre { font-family: "JetBrains Mono", "Fira Code", Consolas, monospace; font-size: 0.85rem; }
+        code { background-color: var(--code-bg); color: var(--accent-amber); padding: 0.15rem 0.4rem; border-radius: 0.25rem; border: 1px solid rgba(255,255,255,0.08); overflow-wrap: anywhere; }
+        pre { background-color: var(--code-bg); color: #e2e8f0; padding: 1.25rem; border-radius: 0.5rem; border: 1px solid var(--border-color); overflow-x: auto; margin: 1rem 0; line-height: 1.5; }
+        pre code { background: none; border: none; padding: 0; color: inherit; overflow-wrap: normal; }
+        .callout { padding: 1.25rem 1.5rem; border-radius: 0.5rem; margin: 1.5rem 0; border-left: 4px solid var(--accent-blue); background-color: rgba(56,189,248,0.08); }
+        .callout.emerald { border-left-color: var(--accent-emerald); background-color: rgba(52,211,153,0.08); }
+        .callout.amber { border-left-color: var(--accent-amber); background-color: rgba(251,191,36,0.08); }
+        .callout.indigo { border-left-color: var(--accent-indigo); background-color: rgba(129,140,248,0.08); }
+        .callout.rose { border-left-color: var(--accent-rose); background-color: rgba(251,113,133,0.08); }
+        .callout-title { font-weight: 700; margin-bottom: 0.4rem; color: var(--text-main); display: flex; align-items: center; gap: 0.5rem; }
+        .tag-pill { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
+        .tag-high { background: rgba(52,211,153,0.15); color: var(--accent-emerald); }
+        .tag-med { background: rgba(251,191,36,0.15); color: var(--accent-amber); }
+        .tag-low { background: rgba(251,113,133,0.15); color: var(--accent-rose); }
+        .tag-info { background: rgba(56,189,248,0.15); color: var(--accent-blue); }
+        .fix { display: inline-block; padding: 0.05rem 0.4rem; margin-left: 0.3rem; border-radius: 0.25rem; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; background: rgba(251,113,133,0.15); color: var(--accent-rose); vertical-align: middle; }
+        del { color: var(--accent-rose); opacity: 0.8; }
+        .muted { color: var(--text-muted); font-size: 0.84rem; }
+        svg { max-width: 100%; height: auto; }
+        .src { font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="title-group">
+            <h1>Multi-Tenant Amazon Neptune Decoupled Purge Engine (v2.3)</h1>
+            <p>Architecture design, Provisioned &amp; Serverless NCU backpressure control, live-data safety, per-tenant KMS encryption, and observability blueprint</p>
+            <p class="muted" style="margin-bottom:0;">Related: <a href="archives/neptune_decoupled_purge_design-v2.2.html">v2.2 design</a> · <a href="archives/neptune_decoupled_purge_design-v2-review-findings.html">review findings</a> · <a href="neptune_decoupled_purge_pulumi-iac-mapping.html">AWS → Pulumi IaC mapping</a></p>
+        </div>
+        <div class="meta-badges">
+            <span class="badge blue">Multi-Tenant Graph Architecture</span>
+            <span class="badge indigo">Provisioned + Serverless NCU Aware</span>
+            <span class="badge emerald">Step Functions + Batch (Fargate) + SQS</span>
+            <span class="badge amber">Revalidated, Per-Cluster Throttled Deletes</span>
+            <span class="badge rose">Per-Tenant KMS &amp; BYOK</span>
+        </div>
+    </header>
+
+    <div class="callout rose" style="margin-top:0;">
+        <div class="callout-title">What changed in v2.3: per-tenant KMS keys</div>
+        <p style="margin-bottom:0.5rem;">Some tenants encrypt their resources with their own customer managed KMS key, and some of those keys use imported (BYOK) key material. v2.3 supports this with the following deployment assumptions:</p>
+        <ul style="margin-bottom:0;">
+            <li><strong>One account:</strong> tenant clusters, tenant keys and the purge engine all live in the same AWS account and Region. Neptune doesn't support cross-account cloning, so this assumption is required.</li>
+            <li><strong>Tenant keys mean dedicated clusters:</strong> a tenant with its own key (<code>EncryptionMode=TENANT_KEY</code>) always has its own cluster. Shared clusters use the platform key (<code>PLATFORM_KEY</code>).</li>
+            <li><strong>Tenant-scoped data:</strong> S3 manifests, checkpoints and Athena results are encrypted with the tenant's key. SQS, DynamoDB, CloudWatch Logs and Step Functions hold only anonymized element IDs, counts and references, so they use the platform key.</li>
+        </ul>
+        <p class="muted" style="margin:0.5rem 0 0;">Changes: header, 1 (preflight and scope), Figures 1–2, 4.1 (lifecycle), new section 6 (encryption boundary, key checks, IAM), 7 (config and ledger fields), 8 (key alarms and reaper), 9 (sources).</p>
+    </div>
+
+    <!-- SECTION 1 -->
+    <section>
+        <h2>1. Architectural Context &amp; Neptune Isolation Mechanics</h2>
+        <p>
+            Purging millions of vertices and edges from live multi-tenant Amazon Neptune clusters (both <strong>Provisioned</strong> and <strong>Neptune Serverless</strong>) carries three operational risks:
+            <strong>(1) Discovery traversal overhead</strong>: deep graph traversals evict warm buffer-cache pages and spike read I/O on production instances.
+            <strong>(2) Write amplification &amp; undo-log growth</strong>: unthrottled batch <code>drop()</code> mutations flood the writer's request queue and inflate <code>UndoLogListSize</code>, which only the writer can purge.
+            <strong>(3) Serverless auto-scaling cost runaway</strong>: unthrottled writes push a Serverless cluster up to its configured <code>MaxCapacity</code> (anywhere from 1.0 to 128.0 NCUs).
+        </p>
+
+        <div class="callout amber">
+            <div class="callout-title">Neptune Fast Database Clone vs. Read Replica</div>
+            <p style="margin-bottom:0;">
+                A Neptune <strong>read replica</strong> is part of the primary DB cluster and shares its storage volume, so it can't be isolated outside the cluster. For full isolation, the Discovery Phase creates an ephemeral <strong>Neptune database clone</strong>. It calls <code>RestoreDBClusterToPointInTime</code> with <code>RestoreType=copy-on-write</code>, <code>UseLatestRestorableTime=true</code>, <code>EnableIAMDatabaseAuthentication=true</code>, plus explicit <code>VpcSecurityGroupIds</code>, <code>DBSubnetGroupName</code>, <code>DBClusterParameterGroupName</code> and <code>Tags</code>. Then <code>CreateDBInstance</code> adds the clone's single instance. Copy-on-write needs no extra storage at creation; only pages changed later on the source or the clone are copied. The clone has its own compute, buffer cache and endpoints. <strong>The restore omits <code>KmsKeyId</code></strong>, so the clone is encrypted with the source cluster's key and stays inside the tenant's encryption boundary (section 6). Limits: same Region, same account (cross-account cloning isn't supported), at most 15 clones per copy. Provisioning time isn't published by AWS, so measure it per tenant.
+            </p>
+        </div>
+
+        <div class="callout rose">
+            <div class="callout-title">Clone preflight, security and scope</div>
+            <ul style="margin-bottom:0;">
+                <li><strong>Preflight:</strong> confirm the source cluster is <code>available</code> and its <code>LatestRestorableTime</code> is non-null (new clusters may not have one yet). If the check fails, fail the run. Never fall back to a full-copy restore: omitting <code>RestoreType</code> defaults to <code>full-copy</code>.</li>
+                <li><strong>Key preflight:</strong> confirm the cluster's <code>KmsKeyId</code> matches the configured key, the key is <code>Enabled</code>, and BYOK key material stays valid for the whole run. If any check fails, don't create a clone (section 6.2).</li>
+                <li><strong>IAM authentication:</strong> the restore call defaults <code>EnableIAMDatabaseAuthentication</code> to <code>false</code>, so always pass <code>true</code>. The clone security group allows port 8182 only from the discovery worker security group.</li>
+                <li><strong>Least privilege:</strong> the discovery job role has only <code>neptune-db:ReadDataViaQuery</code> and never holds delete rights. The executor role has <code>ReadDataViaQuery</code>, <code>DeleteDataViaQuery</code> and <code>GetQueryStatus</code>, scoped to the production cluster resource ID. Both jobs reach S3 and the tenant's key only through a tenant-tagged session (section 6.3).</li>
+                <li><strong>Tenant scope:</strong> a clone contains the entire source cluster. When tenants share a cluster (only possible with <code>PLATFORM_KEY</code>), every discovery query and every production delete filters on the tenant property.</li>
+                <li><strong>Authority:</strong> the clone produces <em>candidates</em>, not delete decisions. Every delete is revalidated against live production (section 5.4).</li>
+            </ul>
+        </div>
+
+        <div class="grid-3">
+            <div class="card">
+                <div class="card-header"><h3>Decoupled Discovery</h3><span class="tag-pill tag-high">Zero Prod Impact</span></div>
+                <p>Creates an ephemeral single-instance clone per tenant (a fixed Provisioned class, or <code>db.serverless</code> with its own <code>ServerlessV2ScalingConfiguration</code>). Streams tenant-filtered candidate vertex and edge IDs, plus the eligibility metadata used, with cursor-paginated queries to S3 manifest chunks (<code>JSONL.gz</code>, 5,000 IDs per chunk), checkpointing the cursor so a Spot interruption can resume. Deletes the clone as soon as the scan finishes.</p>
+            </div>
+            <div class="card">
+                <div class="card-header"><h3>Elastic Scale (Millions to Thousands)</h3><span class="tag-pill tag-high">Scale-to-Zero</span></div>
+                <p>Handles both the initial multi-million-record backlog (hours to drain) and the lighter weekly runs (minutes). Avoids Lambda's 15-minute timeout and the cost of compute that sits idle between weekly runs.</p>
+            </div>
+            <div class="card">
+                <div class="card-header"><h3>Hybrid Closed-Loop Execution</h3><span class="tag-pill tag-high">Provisioned &amp; Serverless</span></div>
+                <p>Sends <strong>revalidated, conditional</strong> deletes to the production writer in micro-batches of 100–500 IDs, under one rate limiter per source cluster. Polls CloudWatch every 60s (Neptune's 1-minute resolution): <code>CPUUtilization</code> for Provisioned, <code>ServerlessDatabaseCapacity</code> and <code>NCUUtilization</code> for Serverless.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION 2 -->
+    <section>
+        <h2>2. AWS Compute &amp; Orchestration Options Comparison</h2>
+        <p>Four candidate architectures compared against this workload: weekly schedule, multi-tenant fan-out driven by DynamoDB, a large gap between the Day-1 backlog and steady-state runs, fine-grained throttling on database health, and end-to-end observability.</p>
+        <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Evaluation Criterion</th>
+                    <th>Option A: Step Functions + Lambda</th>
+                    <th>Option B: Step Functions + Batch (Fargate) + SQS ⭐</th>
+                    <th>Option C: Glue / EMR Serverless (Spark)</th>
+                    <th>Option D: Amazon EKS (CronJobs / KEDA)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Orchestration &amp; Runtime Limits</strong></td>
+                    <td><span class="tag-pill tag-low">15-Min Hard Cap</span><br>Needs cursor-continuation loops for multi-million-record scans.</td>
+                    <td><span class="tag-pill tag-high">No Practical Cap</span><br>Step Functions runs the clone lifecycle (Wait + Describe polling) and calls <code>batch:submitJob.sync</code>. Batch job duration is bounded only by the job definition's <code>attemptDurationSeconds</code>.</td>
+                    <td><span class="tag-pill tag-high">No Practical Cap</span><br>Built for large batch jobs. Startup overhead hurts small tenants.</td>
+                    <td><span class="tag-pill tag-high">No Practical Cap</span><br>Pods run to completion. You own cluster upgrades and VPC CNI IP planning.</td>
+                </tr>
+                <tr>
+                    <td><strong>Cost Profile (Weekly)</strong></td>
+                    <td><span class="tag-pill tag-med">Moderate</span><br>Cheap for small runs. Per-transition charges add up at millions of records.</td>
+                    <td><span class="tag-pill tag-high">Pay-per-Second</span><br>No idle cost. Discovery on Fargate Spot (discount <strong>up to</strong> 70%, x86_64 only, 2-min reclaim notice). Execution on Fargate On-Demand.</td>
+                    <td><span class="tag-pill tag-low">Expensive</span><br>DPU minimums and Spark driver overhead are wasted while writes are throttled.</td>
+                    <td><span class="tag-pill tag-med">Good if Cluster Exists</span><br>Cheap on shared nodes, expensive on a dedicated cluster.</td>
+                </tr>
+                <tr>
+                    <td><strong>Backpressure Control</strong></td>
+                    <td><span class="tag-pill tag-low">Coarse</span><br>Sleeping inside Lambda bills GB-seconds. Concurrent invocations can exhaust Neptune connections.</td>
+                    <td><span class="tag-pill tag-high">Fine-Grained</span><br>Long-lived workers keep warm Gremlin/openCypher connection pools and run an AIMD rate limiter.</td>
+                    <td><span class="tag-pill tag-low">Over-Parallelized</span><br>Spark executors cause <code>ConcurrentModificationException</code> storms unless heavily limited.</td>
+                    <td><span class="tag-pill tag-high">Fine-Grained</span><br>Has pooling, but no managed workflow view of the clone lifecycle.</td>
+                </tr>
+                <tr>
+                    <td><strong>Multi-Tenant Fan-out</strong></td>
+                    <td><code>aws-sdk:dynamodb:query</code> → Map state. (Distributed Map <code>ItemReader</code> doesn't read DynamoDB.)</td>
+                    <td>Paginated <code>aws-sdk:dynamodb:query</code> on <code>TenantConfig</code> → Map state (with <code>MaxConcurrency</code>). Each tenant run acquires a <strong>per-source-cluster lease</strong> and a run lease, then submits isolated Batch jobs that read edge and vertex phase queues.</td>
+                    <td>Needs a custom driver to iterate tenant VPC endpoints.</td>
+                    <td>Needs a custom operator or Argo Workflows for the Neptune clone lifecycle.</td>
+                </tr>
+                <tr>
+                    <td><strong>Observability</strong></td>
+                    <td>Spread across many short-lived log streams.</td>
+                    <td><span class="tag-pill tag-high">Unified</span><br>Step Functions graph + CloudWatch EMF metrics per tenant + DynamoDB ledger + S3 manifest audit trail.</td>
+                    <td>Spark UI. Hard to correlate with Neptune metrics.</td>
+                    <td>Needs Prometheus/Grafana or an ADOT collector.</td>
+                </tr>
+                <tr class="recommended-row">
+                    <td><strong>Verdict</strong></td>
+                    <td>Not recommended.</td>
+                    <td><strong>RECOMMENDED</strong></td>
+                    <td>Not recommended.</td>
+                    <td>Runner-up (if Kubernetes is mandated; still needs Step Functions for the clone lifecycle).</td>
+                </tr>
+            </tbody>
+        </table>
+        </div>
+    </section>
+
+    <!-- SECTION 3 -->
+    <section>
+        <h2>3. Recommended Architecture &amp; Component Diagram</h2>
+        <p>
+            <strong>EventBridge Scheduler</strong> (weekly trigger and hourly orphan reaper) → <strong>AWS Step Functions</strong> (control plane) → <strong>AWS Batch on Fargate</strong> (data plane), decoupled by <strong>S3 + SQS</strong>, with <strong>DynamoDB</strong> holding tenant config and the run ledger.
+        </p>
+        <div class="diagram-container">
+            <svg viewBox="0 0 1200 680" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, Segoe UI, Roboto, sans-serif">
+                <defs>
+                    <marker id="arrow-blue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#38bdf8"/></marker>
+                    <marker id="arrow-emerald" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#34d399"/></marker>
+                    <marker id="arrow-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#fbbf24"/></marker>
+                    <marker id="arrow-rose" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#fb7185"/></marker>
+                </defs>
+                <rect x="15" y="15" width="1170" height="145" rx="10" fill="#131c31" stroke="#334155" stroke-dasharray="5,5"/>
+                <text x="30" y="40" fill="#38bdf8" font-size="13" font-weight="bold" letter-spacing="1">CONTROL PLANE &amp; TENANT METADATA</text>
+                <rect x="15" y="175" width="565" height="330" rx="10" fill="#132226" stroke="#059669" stroke-dasharray="5,5"/>
+                <text x="30" y="200" fill="#34d399" font-size="13" font-weight="bold" letter-spacing="1">PHASE 1: ISOLATED DISCOVERY PLANE (READ-ONLY)</text>
+                <rect x="600" y="175" width="585" height="330" rx="10" fill="#231c18" stroke="#d97706" stroke-dasharray="5,5"/>
+                <text x="615" y="200" fill="#fbbf24" font-size="13" font-weight="bold" letter-spacing="1">PHASE 2: CONTROLLED EXECUTION PLANE (THROTTLED WRITES)</text>
+                <rect x="15" y="520" width="1170" height="145" rx="10" fill="#19162b" stroke="#6366f1" stroke-dasharray="5,5"/>
+                <text x="30" y="545" fill="#818cf8" font-size="13" font-weight="bold" letter-spacing="1">OBSERVABILITY, TELEMETRY &amp; AUDIT PLANE</text>
+
+                <rect x="35" y="60" width="175" height="75" rx="8" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+                <text x="122" y="88" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">EventBridge Scheduler</text>
+                <text x="122" y="108" fill="#94a3b8" font-size="11" text-anchor="middle">Weekly cron (purge)</text>
+                <text x="122" y="123" fill="#94a3b8" font-size="11" text-anchor="middle">Hourly rate (clone reaper)</text>
+
+                <rect x="270" y="55" width="290" height="85" rx="8" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+                <text x="415" y="83" fill="#f8fafc" font-size="14" font-weight="bold" text-anchor="middle">AWS Step Functions</text>
+                <text x="415" y="103" fill="#38bdf8" font-size="11" text-anchor="middle">DynamoDB Query → Map State per Tenant</text>
+                <text x="415" y="122" fill="#94a3b8" font-size="10" text-anchor="middle">aws-sdk:neptune (Wait/Describe loops) • batch:submitJob.sync</text>
+
+                <rect x="640" y="55" width="245" height="85" rx="8" fill="#1e293b" stroke="#818cf8" stroke-width="2"/>
+                <text x="762" y="83" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">DynamoDB: TenantConfig</text>
+                <text x="762" y="103" fill="#94a3b8" font-size="11" text-anchor="middle">ComputeMode, Rules, Budgets,</text>
+                <text x="762" y="120" fill="#fb7185" font-size="11" text-anchor="middle">EncryptionMode • TenantKmsKeyArn</text>
+
+                <rect x="925" y="55" width="240" height="85" rx="8" fill="#1e293b" stroke="#818cf8" stroke-width="2"/>
+                <text x="1045" y="83" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">DynamoDB: PurgeRunLedger</text>
+                <text x="1045" y="103" fill="#94a3b8" font-size="11" text-anchor="middle">Run + Chunk Ledger, Cursor</text>
+                <text x="1045" y="120" fill="#94a3b8" font-size="11" text-anchor="middle">Per-Cluster Leases, Status</text>
+
+                <rect x="40" y="235" width="230" height="100" rx="8" fill="#1e293b" stroke="#34d399" stroke-width="2"/>
+                <text x="155" y="263" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">AWS Batch (Fargate Spot)</text>
+                <text x="155" y="283" fill="#34d399" font-size="12" text-anchor="middle">Discovery (IAM Read-Only)</text>
+                <text x="155" y="303" fill="#94a3b8" font-size="10" text-anchor="middle">Tenant-Filtered Scan • Checkpoint</text>
+                <text x="155" y="318" fill="#94a3b8" font-size="10" text-anchor="middle">(5,000 IDs / JSONL.gz Chunk)</text>
+
+                <rect x="40" y="385" width="230" height="95" rx="8" fill="#1e293b" stroke="#34d399" stroke-width="2" stroke-dasharray="4,2"/>
+                <text x="155" y="413" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">Ephemeral Neptune Clone</text>
+                <text x="155" y="433" fill="#34d399" font-size="11" text-anchor="middle">copy-on-write PITR + CreateDBInstance</text>
+                <text x="155" y="451" fill="#94a3b8" font-size="10" text-anchor="middle">Fixed class or db.serverless (capped)</text>
+                <text x="155" y="466" fill="#fb7185" font-size="10" text-anchor="middle">Inherits source KMS key • Deleted Post-Scan</text>
+
+                <rect x="330" y="235" width="225" height="100" rx="8" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+                <text x="442" y="265" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">Amazon S3</text>
+                <text x="442" y="285" fill="#38bdf8" font-size="12" text-anchor="middle">Purge Manifest Store</text>
+                <text x="442" y="305" fill="#94a3b8" font-size="10" text-anchor="middle">s3://purge-manifests/{tenant}/{run}/</text>
+                <text x="442" y="320" fill="#fb7185" font-size="10" text-anchor="middle">SSE-KMS: tenant key or platform key</text>
+
+                <rect x="330" y="385" width="225" height="95" rx="8" fill="#1e293b" stroke="#fbbf24" stroke-width="2"/>
+                <text x="442" y="413" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">Amazon SQS + DLQ</text>
+                <text x="442" y="433" fill="#fbbf24" font-size="12" text-anchor="middle">Edge / Vertex Phase Queues</text>
+                <text x="442" y="451" fill="#94a3b8" font-size="10" text-anchor="middle">14d • pointers only • platform key</text>
+                <text x="442" y="466" fill="#94a3b8" font-size="10" text-anchor="middle">maxReceiveCount = 3 → DLQ</text>
+
+                <rect x="635" y="235" width="250" height="115" rx="8" fill="#1e293b" stroke="#fbbf24" stroke-width="2"/>
+                <text x="760" y="263" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">AWS Batch (Fargate On-Demand)</text>
+                <text x="760" y="283" fill="#fbbf24" font-size="12" text-anchor="middle">Adaptive Purge Executor</text>
+                <text x="760" y="303" fill="#94a3b8" font-size="10" text-anchor="middle">• Per-Cluster Rate Limiter (AIMD)</text>
+                <text x="760" y="318" fill="#94a3b8" font-size="10" text-anchor="middle">• CPU / NCU Budget • CME Retry</text>
+                <text x="760" y="333" fill="#94a3b8" font-size="10" text-anchor="middle">• Revalidate + drop() 100–500 IDs</text>
+
+                <rect x="935" y="235" width="225" height="115" rx="8" fill="#1e293b" stroke="#fb7185" stroke-width="2"/>
+                <text x="1047" y="268" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">Production Neptune Cluster</text>
+                <text x="1047" y="288" fill="#fb7185" font-size="12" text-anchor="middle">Provisioned or Serverless Writer</text>
+                <text x="1047" y="308" fill="#94a3b8" font-size="10" text-anchor="middle">Live Application Traffic +</text>
+                <text x="1047" y="323" fill="#94a3b8" font-size="10" text-anchor="middle">Conditional (Revalidated) Deletes</text>
+                <text x="1047" y="340" fill="#fb7185" font-size="10" text-anchor="middle">Tenant CMK / BYOK or platform key</text>
+
+                <rect x="770" y="390" width="290" height="95" rx="8" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+                <text x="915" y="416" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">Writer Health Signals</text>
+                <text x="915" y="436" fill="#38bdf8" font-size="10" text-anchor="middle">ALL: CPU • Queue • UndoLog • Live Status • App p95</text>
+                <text x="915" y="452" fill="#818cf8" font-size="10" text-anchor="middle">SLS: ServerlessDatabaseCapacity • NCUUtilization</text>
+                <text x="915" y="468" fill="#94a3b8" font-size="10" text-anchor="middle">BufferCacheHitRatio • Current Writer (failover)</text>
+
+                <rect x="40" y="565" width="335" height="75" rx="8" fill="#1e293b" stroke="#818cf8" stroke-width="2"/>
+                <text x="207" y="595" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">CloudWatch Embedded Metric Format</text>
+                <text x="207" y="615" fill="#94a3b8" font-size="11" text-anchor="middle">Namespace: NeptunePurge/MultiTenant</text>
+
+                <rect x="430" y="565" width="340" height="75" rx="8" fill="#1e293b" stroke="#818cf8" stroke-width="2"/>
+                <text x="600" y="595" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">CloudWatch Dashboards &amp; Alarms</text>
+                <text x="600" y="615" fill="#94a3b8" font-size="11" text-anchor="middle">Discovered vs. Purged • NCUs • DLQ Depth</text>
+
+                <rect x="825" y="565" width="335" height="75" rx="8" fill="#1e293b" stroke="#818cf8" stroke-width="2"/>
+                <text x="992" y="595" fill="#f8fafc" font-size="13" font-weight="bold" text-anchor="middle">Amazon Athena (S3 Manifest Audit)</text>
+                <text x="992" y="615" fill="#94a3b8" font-size="11" text-anchor="middle">Per-tenant partition, role &amp; workgroup</text>
+
+                <line x1="210" y1="97" x2="262" y2="97" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow-blue)"/>
+                <line x1="560" y1="97" x2="632" y2="97" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow-blue)"/>
+                <line x1="885" y1="97" x2="917" y2="97" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow-blue)"/>
+                <path d="M 330 140 L 155 140 L 155 227" fill="none" stroke="#34d399" stroke-width="2" marker-end="url(#arrow-emerald)"/>
+                <path d="M 480 140 L 760 140 L 760 227" fill="none" stroke="#fbbf24" stroke-width="2" marker-end="url(#arrow-amber)"/>
+                <line x1="155" y1="335" x2="155" y2="377" stroke="#34d399" stroke-width="2" marker-end="url(#arrow-emerald)"/>
+                <line x1="270" y1="285" x2="322" y2="285" stroke="#34d399" stroke-width="2" marker-end="url(#arrow-emerald)"/>
+                <path d="M 270 310 L 300 310 L 300 432 L 322 432" fill="none" stroke="#fbbf24" stroke-width="2" marker-end="url(#arrow-amber)"/>
+                <line x1="555" y1="432" x2="660" y2="355" stroke="#fbbf24" stroke-width="2" marker-end="url(#arrow-amber)"/>
+                <line x1="635" y1="285" x2="563" y2="285" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow-blue)"/>
+                <line x1="885" y1="292" x2="927" y2="292" stroke="#fb7185" stroke-width="2.5" marker-end="url(#arrow-rose)"/>
+                <line x1="1047" y1="350" x2="960" y2="385" stroke="#38bdf8" stroke-width="1.8" stroke-dasharray="4,3" marker-end="url(#arrow-blue)"/>
+                <line x1="840" y1="390" x2="785" y2="355" stroke="#38bdf8" stroke-width="1.8" stroke-dasharray="4,3" marker-end="url(#arrow-blue)"/>
+                <path d="M 155 480 L 155 557" fill="none" stroke="#818cf8" stroke-width="1.5" stroke-dasharray="3,3" marker-end="url(#arrow-blue)"/>
+                <path d="M 710 350 L 710 510 L 260 510 L 260 557" fill="none" stroke="#818cf8" stroke-width="1.5" stroke-dasharray="3,3" marker-end="url(#arrow-blue)"/>
+                <line x1="375" y1="602" x2="422" y2="602" stroke="#818cf8" stroke-width="2" marker-end="url(#arrow-blue)"/>
+            </svg>
+            <div class="diagram-caption">Figure 1: Decoupled discovery on an ephemeral copy-on-write clone, and closed-loop execution against Provisioned or Serverless writers. Rose labels mark where the tenant key applies (section 6).</div>
+        </div>
+    </section>
+
+    <!-- SECTION 4 -->
+    <section>
+        <h2>4. End-to-End Execution Sequence</h2>
+        <p>One tenant's weekly run, simplified. Step 2 creates the clone in two API calls: a copy-on-write point-in-time restore, then <code>CreateDBInstance</code>, each followed by Wait + Describe polling because Neptune has no <code>.sync</code> integration. The lifecycle contract below the diagram is authoritative where the two differ.</p>
+        <div class="diagram-container">
+            <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, Segoe UI, Roboto, sans-serif">
+                <defs>
+                    <marker id="seq-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#38bdf8"/></marker>
+                    <marker id="seq-arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#34d399"/></marker>
+                    <marker id="seq-arrow-amber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#fbbf24"/></marker>
+                    <marker id="seq-arrow-rose" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 1 L 10 5 L 0 9 z" fill="#fb7185"/></marker>
+                </defs>
+                <g font-size="12" font-weight="bold" text-anchor="middle" fill="#f8fafc">
+                    <rect x="25" y="20" width="130" height="45" rx="6" fill="#1e293b" stroke="#38bdf8"/><text x="90" y="47">Step Functions</text>
+                    <rect x="190" y="20" width="130" height="45" rx="6" fill="#1e293b" stroke="#818cf8"/><text x="255" y="47">DynamoDB</text>
+                    <rect x="355" y="20" width="140" height="45" rx="6" fill="#1e293b" stroke="#34d399"/><text x="425" y="47">Neptune Clone</text>
+                    <rect x="530" y="20" width="140" height="45" rx="6" fill="#1e293b" stroke="#34d399"/><text x="600" y="47">Batch: Discovery</text>
+                    <rect x="705" y="20" width="130" height="45" rx="6" fill="#1e293b" stroke="#38bdf8"/><text x="770" y="47">S3 + SQS Queue</text>
+                    <rect x="870" y="20" width="140" height="45" rx="6" fill="#1e293b" stroke="#fbbf24"/><text x="940" y="47">Batch: Executor</text>
+                    <rect x="1045" y="20" width="135" height="45" rx="6" fill="#1e293b" stroke="#fb7185"/><text x="1112" y="47">Prod Neptune + CW</text>
+                </g>
+                <g stroke="#334155" stroke-width="1.5" stroke-dasharray="4,4">
+                    <line x1="90" y1="65" x2="90" y2="770"/><line x1="255" y1="65" x2="255" y2="770"/><line x1="425" y1="65" x2="425" y2="770"/>
+                    <line x1="600" y1="65" x2="600" y2="770"/><line x1="770" y1="65" x2="770" y2="770"/><line x1="940" y1="65" x2="940" y2="770"/><line x1="1112" y1="65" x2="1112" y2="770"/>
+                </g>
+                <line x1="90" y1="95" x2="247" y2="95" stroke="#38bdf8" stroke-width="2" marker-end="url(#seq-arrow)"/>
+                <text x="170" y="88" fill="#cbd5e1" font-size="11" text-anchor="middle">1. Query enabled tenants &amp; init RunId</text>
+
+                <rect x="40" y="120" width="800" height="285" rx="6" fill="rgba(52,211,153,0.05)" stroke="#059669" stroke-dasharray="3,3"/>
+                <text x="55" y="140" fill="#34d399" font-size="11" font-weight="bold">PHASE 1: ISOLATED DISCOVERY</text>
+
+                <line x1="90" y1="165" x2="417" y2="165" stroke="#34d399" stroke-width="2" marker-end="url(#seq-arrow-green)"/>
+                <text x="255" y="158" fill="#cbd5e1" font-size="11" text-anchor="middle">2a. Preflight (PITR + KMS key) → Restore (copy-on-write, IAM auth)</text>
+                <line x1="90" y1="195" x2="417" y2="195" stroke="#34d399" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#seq-arrow-green)"/>
+                <text x="255" y="188" fill="#94a3b8" font-size="11" text-anchor="middle">2b. Wait ↻ DescribeDBClusters until 'available'</text>
+                <line x1="90" y1="225" x2="417" y2="225" stroke="#34d399" stroke-width="2" marker-end="url(#seq-arrow-green)"/>
+                <text x="255" y="218" fill="#cbd5e1" font-size="11" text-anchor="middle">2c. CreateDBInstance → Wait ↻ DescribeDBInstances</text>
+
+                <line x1="90" y1="255" x2="592" y2="255" stroke="#34d399" stroke-width="2" marker-end="url(#seq-arrow-green)"/>
+                <text x="340" y="248" fill="#cbd5e1" font-size="11" text-anchor="middle">3. submitJob.sync (Discovery, read-only, tenant-tagged)</text>
+                <line x1="600" y1="285" x2="433" y2="285" stroke="#34d399" stroke-width="2" marker-end="url(#seq-arrow-green)"/>
+                <text x="515" y="278" fill="#cbd5e1" font-size="11" text-anchor="middle">4. Tenant-filtered scan</text>
+                <line x1="600" y1="315" x2="762" y2="315" stroke="#34d399" stroke-width="2" marker-end="url(#seq-arrow-green)"/>
+                <text x="685" y="308" fill="#cbd5e1" font-size="11" text-anchor="middle">5. Put chunks → seal → SQS</text>
+                <line x1="600" y1="345" x2="263" y2="345" stroke="#34d399" stroke-width="2" marker-end="url(#seq-arrow-green)"/>
+                <text x="430" y="338" fill="#cbd5e1" font-size="11" text-anchor="middle">6. Checkpoint cursor + chunk ledger, emit EMF</text>
+                <line x1="90" y1="385" x2="417" y2="385" stroke="#fb7185" stroke-width="2" marker-end="url(#seq-arrow-rose)"/>
+                <text x="255" y="378" fill="#fb7185" font-size="11" font-weight="bold" text-anchor="middle">7. DeleteDBInstance → DeleteDBCluster(SkipFinalSnapshot)</text>
+
+                <rect x="40" y="425" width="1135" height="315" rx="6" fill="rgba(251,191,36,0.05)" stroke="#d97706" stroke-dasharray="3,3"/>
+                <text x="55" y="445" fill="#fbbf24" font-size="11" font-weight="bold">PHASE 2: METERED EXECUTION LOOP (PROVISIONED &amp; SERVERLESS BACKPRESSURE)</text>
+                <line x1="90" y1="470" x2="932" y2="470" stroke="#fbbf24" stroke-width="2" marker-end="url(#seq-arrow-amber)"/>
+                <text x="510" y="463" fill="#cbd5e1" font-size="11" text-anchor="middle">8. submitJob.sync: Edge phase → barrier → Vertex phase</text>
+                <line x1="940" y1="510" x2="778" y2="510" stroke="#fbbf24" stroke-width="2" marker-end="url(#seq-arrow-amber)"/>
+                <text x="855" y="503" fill="#cbd5e1" font-size="11" text-anchor="middle">9. Claim chunk + GetObject</text>
+                <line x1="940" y1="555" x2="1104" y2="555" stroke="#38bdf8" stroke-width="2" marker-end="url(#seq-arrow)"/>
+                <text x="1025" y="548" fill="#38bdf8" font-size="11" text-anchor="middle">10. Resolve writer + health</text>
+                <line x1="940" y1="600" x2="1104" y2="600" stroke="#fbbf24" stroke-width="2" marker-end="url(#seq-arrow-amber)"/>
+                <text x="1025" y="593" fill="#fbbf24" font-size="11" text-anchor="middle">11. Revalidate + drop()</text>
+                <line x1="940" y1="645" x2="778" y2="645" stroke="#34d399" stroke-width="2" marker-end="url(#seq-arrow-green)"/>
+                <text x="855" y="638" fill="#cbd5e1" font-size="11" text-anchor="middle">12. Commit ledger → DeleteMessage</text>
+                <line x1="940" y1="690" x2="263" y2="690" stroke="#fbbf24" stroke-width="2" marker-end="url(#seq-arrow-amber)"/>
+                <text x="600" y="683" fill="#cbd5e1" font-size="11" text-anchor="middle">13. TransactWriteItems: chunk COMPLETED + run totals; emit EMF</text>
+                <line x1="90" y1="725" x2="247" y2="725" stroke="#38bdf8" stroke-width="2" marker-end="url(#seq-arrow)"/>
+                <text x="170" y="718" fill="#34d399" font-size="11" font-weight="bold" text-anchor="middle">14. Reconcile → COMPLETED / PAUSED</text>
+            </svg>
+            <div class="diagram-caption">Figure 2: Clone creation as two API calls with polling loops, immediate clone teardown, and health-checked execution</div>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><h3>4.1 Runtime Lifecycle Contract</h3><span class="badge emerald">Authoritative</span></div>
+            <ol style="margin-bottom:0;">
+                <li><strong>Lease and freeze.</strong> Acquire a fenced lease on the source cluster (keyed by cluster resource ID) and a tenant run lease in DynamoDB: conditional put, expiry and heartbeat. Record the rule version, the run cutoff epoch and the resolved KMS key ARN in the run ledger. All later steps use these frozen values.</li>
+                <li><strong>Key check.</strong> Run the key preflight in 6.2, both before resuming a paused run and before starting a new discovery. If the key isn't usable, start nothing: record a <code>SkipReason</code> and raise the per-tenant key alarm.</li>
+                <li><strong>Resume before discover.</strong> If the tenant has a <code>PAUSED</code> run, resume it from its sealed manifest and chunk ledger first. Rebuild any expired SQS pointers. Start a new discovery only once nothing is outstanding.</li>
+                <li><strong>Clone.</strong> Run the preflight, then restore, poll, create the instance and poll. Verify the clone's endpoint, <code>CloneGroupId</code>, IAM authentication, and that <code>StorageEncrypted=true</code> with the same <code>KmsKeyId</code> as the source, before running discovery.</li>
+                <li><strong>Discover and seal.</strong> Scan with tenant filters and checkpoint the cursor. Write deterministic chunks (<code>EDGE-000001</code>…, <code>VERTEX-000001</code>…) to S3, each encrypted with an explicit <code>SSEKMSKeyId</code> (6.1), and record them in the chunk ledger. Seal the manifest (chunk counts plus a <code>_SEALED</code> object) only after the full scan, then publish SQS pointers. An executor never starts on an unsealed manifest.</li>
+                <li><strong>Tear down the clone.</strong> On success or failure (<code>Catch</code>): delete the instance, wait, delete the cluster with <code>SkipFinalSnapshot=true</code>, wait. Persist the cleanup status. The reaper handles aborted executions.</li>
+                <li><strong>Edge phase, barrier, vertex phase.</strong> The vertex phase starts only when every edge chunk is terminal in the chunk ledger. Queue ordering alone isn't a barrier. A chunk's SQS message is deleted only after its ledger commit.</li>
+                <li><strong>Window close.</strong> Checkpoint, release the leases and mark the run <code>PAUSED</code>.</li>
+                <li><strong>Key lost mid-run.</strong> If a KMS error shows the tenant key is unusable, stop new writes, mark in-flight batches <code>Uncertain</code>, tear down the clone, release the leases, and mark the run <code>FAILED</code> with <code>FailureReason=TENANT_KEY_UNAVAILABLE</code>. Never retry it automatically (6.2).</li>
+                <li><strong>Complete.</strong> Mark the run <code>COMPLETED</code> only when every chunk is terminal (DLQ chunks resolved, uncertain outcomes reconciled) and clone cleanup is confirmed.</li>
+            </ol>
+        </div>
+    </section>
+
+    <!-- SECTION 5 -->
+    <section>
+        <h2>5. Adaptive Database Health &amp; Backpressure Control</h2>
+        <p>
+            Dropping a vertex in Neptune also removes its properties and every incident edge. Large unthrottled deletes cause <code>ConcurrentModificationException</code> conflicts and grow <code>UndoLogListSize</code>. Only the writer purges the undo log, and delete records take longer to purge than other transaction types. On <strong>Neptune Serverless</strong>, a CPU-only signal falls into an <strong>auto-scaling feedback trap</strong>: Neptune adds NCUs to absorb the purge load, so CPU stays low while billing climbs toward <code>MaxCapacity</code>.
+        </p>
+
+        <div class="callout indigo">
+            <div class="callout-title">Serverless Clone &amp; Execution Cost Guardrails</div>
+            <ul style="margin-bottom:0;">
+                <li><strong>Discovery clone compute:</strong> attach either a <strong>fixed Provisioned instance</strong> (for example <code>db.r6g.xlarge</code>) for a hard hourly price ceiling, or <code>db.serverless</code>. For Serverless, pass <code>ServerlessV2ScalingConfiguration={MinCapacity: 2.0, MaxCapacity: 16.0}</code> on the restore call; otherwise the clone inherits the source cluster's range. Values use half-step increments within 1.0–128.0.</li>
+                <li><strong>Execution NCU budget (<code>MaxPurgeNcuThreshold</code>):</strong> a per-cluster soft threshold shared by all tenants on that writer, for example 12 NCUs on a cluster whose <code>MaxCapacity</code> is 64. When the writer's instance-level <code>ServerlessDatabaseCapacity</code> reaches it, the controller moves to Yellow. This reduces purge pressure but isn't a cost cap: application traffic can still raise NCUs.</li>
+                <li><strong>Headroom:</strong> <code>NCUUtilization</code> already equals current NCUs ÷ the cluster's max NCU setting, so use it alone for headroom (Red above 75%). Read <code>MaxCapacity</code> at runtime from <code>DescribeDBClusters</code> rather than copying it into DynamoDB, where it can drift.</li>
+                <li><strong>Small buffer cache:</strong> 1 NCU = 2 GiB RAM, so an instance idling at 2 NCUs has about 4 GiB. AWS's baseline for <code>BufferCacheHitRatio</code> is 99.9%. Below 99%, cap sub-batches at 100–150 IDs.</li>
+            </ul>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-header"><h3>5.1 Provisioned Matrix</h3><span class="badge blue">PROVISIONED</span></div>
+                <div class="table-wrap" style="margin:0 0 1rem;">
+                <table>
+                    <thead><tr><th>Metric</th><th>Green</th><th>Yellow</th><th>Red</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>CPUUtilization</code> (writer)</td><td>&lt; 45%</td><td>45–70%</td><td>&gt; 70% / missing 3 min</td></tr>
+                        <tr><td><code>MainRequestQueuePendingRequests</code></td><td>0 / missing</td><td>1–5</td><td>&gt; 5</td></tr>
+                        <tr><td>Live queue: <code>acceptedQueryCount − runningQueryCount</code> (status API, 15s)</td><td>0</td><td>1–5</td><td>&gt; 5</td></tr>
+                        <tr><td>Application p95 latency (app SLO metric)</td><td>&lt; 80% of SLO</td><td>80–100% of SLO</td><td>≥ SLO</td></tr>
+                        <tr><td><code>UndoLogListSize</code></td><td>&lt; 250k / missing</td><td>250k–1M</td><td>&gt; 1M</td></tr>
+                        <tr><td><code>ConcurrentModificationRetries</code> (custom EMF)</td><td>0 / min</td><td>1–3 / min</td><td>&gt; 3 / min</td></tr>
+                        <tr><td><code>NumTxRolledBack</code> (writer, server-side proxy)</td><td>≈ baseline</td><td>2× baseline</td><td>5× baseline</td></tr>
+                    </tbody>
+                </table>
+                </div>
+                <p class="muted" style="margin-bottom:0;">The 45%/70% CPU limits are design choices; the Neptune console draws its warning line at 75%. Neptune publishes only non-zero values, so a missing queue or undo-log datapoint means 0. <code>CPUUtilization</code> is always published, so a missing CPU datapoint means telemetry is stale, which is Red. Dropping edges before their vertices keeps each transaction smaller around supernodes. It needs the phase barrier in 4.1, and vertex deletes still apply the relationship policy in 5.4.</p>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><h3>5.2 Serverless Matrix</h3><span class="badge indigo">SERVERLESS</span></div>
+                <div class="table-wrap" style="margin:0 0 1rem;">
+                <table>
+                    <thead><tr><th>Metric</th><th>Green</th><th>Yellow</th><th>Red</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>CPUUtilization</code> (writer)</td><td>&lt; 45%</td><td>45–70%</td><td>&gt; 70% / missing 3 min</td></tr>
+                        <tr><td><code>ServerlessDatabaseCapacity</code> (writer, NCUs)</td><td>&lt; <code>MaxPurgeNcuThreshold</code></td><td>≥ <code>MaxPurgeNcuThreshold</code></td><td>(covered by NCUUtilization)</td></tr>
+                        <tr><td><code>NCUUtilization</code> (= NCUs ÷ max NCU)</td><td>&lt; 50%</td><td>50–75%</td><td>&gt; 75%</td></tr>
+                        <tr><td><code>BufferCacheHitRatio</code></td><td>≥ 99%</td><td>95–99% (batch ≤ 150)</td><td>&lt; 95%</td></tr>
+                        <tr><td><code>MainRequestQueuePendingRequests</code></td><td>0 / missing</td><td>1–5</td><td>&gt; 5</td></tr>
+                        <tr><td>Live queue: <code>acceptedQueryCount − runningQueryCount</code> (status API, 15s)</td><td>0</td><td>1–5</td><td>&gt; 5</td></tr>
+                        <tr><td>Application p95 latency (app SLO metric)</td><td>&lt; 80% of SLO</td><td>80–100% of SLO</td><td>≥ SLO</td></tr>
+                        <tr><td><code>UndoLogListSize</code></td><td>&lt; 250k / missing</td><td>250k–1M</td><td>&gt; 1M</td></tr>
+                    </tbody>
+                </table>
+                </div>
+                <p class="muted" style="margin-bottom:0;"><code>NCUUtilization</code> is already current NCUs ÷ the cluster's max NCU setting, so it is the only headroom signal needed. All writer metrics come from the <em>current</em> writer instance, resolved every cycle.</p>
+            </div>
+        </div>
+
+        <div class="card" style="margin-bottom: 1.5rem;">
+            <div class="card-header"><h3>5.3 Per-Cluster AIMD Controller</h3><span class="badge amber">60s CloudWatch • 15s Live Status</span></div>
+<pre><code>// One controller per SOURCE CLUSTER, not per tenant. All tenant executors on a writer share one
+// rate budget through a DynamoDB lease item (ClusterResourceId) with a fencing token and heartbeat.
+// Cadence: CloudWatch every 60s (1-minute resolution), live query status every 15s, latency and CME every batch.
+
+writer = resolveCurrentWriter(clusterId);          // DescribeDBClusters → DBClusterMembers[IsClusterWriter]
+HealthStatus status = GREEN;
+if (!writer.id.equals(lastWriterId)) {             // failover or replacement
+    status = RED;                                  // reconnect via cluster endpoint, re-baseline
+    lastWriterId = writer.id;
+}
+cw     = getMetricData(writer.id, clusterId, 60);  // AWS/Neptune, DBInstanceIdentifier = current writer
+live   = getQueryStatus(clusterEndpoint);          // neptune-db:GetQueryStatus
+policy = loadClusterThrottlePolicy(clusterId);
+
+if (cw.cpu.isMissingOrOlderThan(Duration.ofMinutes(3))) status = RED;  // always published: missing = stale
+long pending  = cw.pendingQueue.orElse(0L);        // published only when non-zero
+long undoLog  = cw.undoLog.orElse(0L);             // published only when non-zero
+long queued   = live.acceptedQueryCount - live.runningQueryCount;
+
+status = maxSeverity(status,
+        band(cw.cpu.get(),            policy.CpuThrottleThresholdPct,  policy.MaxCpuThresholdPct),
+        band(max(pending, queued),    1,                               policy.MaxPendingQueueDepth),
+        band(undoLog,                 policy.UndoLogThrottleThreshold, policy.MaxUndoLogSize),
+        band(cmeRetriesLastMinute(),  1,                               policy.MaxConflictRetriesPerMinute),
+        band(appP95LatencyMs(),       0.8 * policy.AppP95SloMs,        policy.AppP95SloMs));
+
+if (writer.isServerless()) {
+    status = maxSeverity(status,
+            band(cw.ncuUtilization, policy.NcuUtilizationThrottleThresholdPct, policy.MaxNcuUtilizationPct),
+            cw.currentNcus &gt;= policy.MaxPurgeNcuThreshold ? YELLOW : GREEN,
+            cw.bufferCacheHitRatio &lt; policy.StopBufferCacheHitRatioPct ? RED : GREEN);
+}
+
+// AIMD on ONE control variable: cluster-wide micro-batches per second
+switch (status) {
+    case GREEN -&gt; {
+        if (++greenStreak &gt;= policy.GreenSamplesToIncrease)
+            rate = Math.min(policy.MaxRate, rate + policy.RateIncreaseStep);
+    }
+    case YELLOW -&gt; { greenStreak = 0; rate = Math.max(policy.MinRate, rate / 2); }
+    case RED -&gt; {
+        greenStreak = 0;
+        pauseNewWrites();                                    // let in-flight batches finish
+        sqs.extendVisibility(inFlightReceipts, Duration.ofMinutes(5));   // capped at 12h from receipt
+        emitMetric("CircuitBreakerTripped", 1, clusterId);
+        waitForFreshGreenSamples(policy.GreenSamplesToIncrease);
+    }
+}
+
+// Batch size is bounded separately; AIMD does not adapt it
+batchSize = Math.min(policy.MaxBatchSize, degreeAwareLimit(chunk));    // smaller for high-degree vertices
+if (writer.isServerless() &amp;&amp; cw.bufferCacheHitRatio &lt; policy.MinBufferCacheHitRatioPct)
+    batchSize = Math.min(batchSize, 150);</code></pre>
+        </div>
+
+        <div class="callout emerald">
+            <div class="callout-title">Day-1 Backlog vs. Weekly Runs</div>
+            <p style="margin-bottom:0;">
+                Discovery writes immutable chunks to S3 and enqueues pointers to an SQS queue with <code>MessageRetentionPeriod</code> <strong>explicitly set to 1,209,600s (14 days, the maximum; the default is 4 days)</strong>. A per-tenant <code>MaintenanceWindowMaxMinutes</code> (for example 360) lets the executor stop cleanly when the window closes. If 25M IDs are discovered and only 8M purged in the first window, the executor checkpoints, releases its leases and marks the run <code>PAUSED</code>, never <code>COMPLETED</code>. The remaining 17M stay in the sealed S3 manifests and the chunk ledger. The next window resumes them before any new discovery and revalidates every candidate against production (5.4). SQS pointers older than 14 days expire, so the resume step rebuilds missing pointers from the manifest and chunk ledger rather than trusting queue depth. Set the DLQ retention ≥ the source queue's, since a standard-queue message's expiry is based on its original enqueue time.
+            </p>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><h3>5.4 Live-Data Correctness: Revalidate Before Delete</h3><span class="badge rose">Safety</span></div>
+            <p>The clone is a point-in-time candidate list, not authority to delete. Between the snapshot and the delete, a record can be renewed, relabeled, reassigned or removed by someone else. Every production delete re-applies the rule in the same query, using the cutoff frozen at run start. The example values below are for a run starting 2026-11-22T01:00Z.</p>
+<pre><code>// 1. Classify (read on the current writer, per micro-batch):
+//      present  = g.E(ids).id()
+//      eligible = g.E(ids).hasLabel(L).has('tenantId', T).has(P, lt(cutoff)).id()
+// 2. Conditional delete: the predicates are re-applied, so a record renewed after step 1 is never dropped.
+
+// Edge phase. CutoffMode=BEFORE_RUN_CUTOFF: compare the expiry property directly to the frozen cutoff.
+g.E('edge-1', 'edge-2').hasLabel('SESSION_EVENT')
+ .has('tenantId', 'tenant-042')
+ .has('expiresAtEpoch', lt(1795309200))
+ .drop()
+
+// Vertex phase (starts only after every edge chunk is terminal).
+// CutoffMode=RETENTION_DAYS: cutoff = runStart − 180 days, applied once at freeze time.
+g.V('vertex-1', 'vertex-2').hasLabel('AuditTrace')
+ .has('tenantId', 'tenant-042')
+ .has('createdAtEpoch', lt(1779757200))
+ .not(bothE())                                  // VertexEdgePolicy=ORPHAN_ONLY
+ .drop()
+
+// 3. Uncertain outcome (timeout or connection loss after send): re-read g.E(eligible).id() before retrying.</code></pre>
+            <ul style="margin-bottom:0;">
+                <li><strong>Outcomes per ID:</strong> <code>ConfirmedDeleted</code>, <code>AlreadyAbsent</code>, <code>NoLongerEligible</code>, <code>Uncertain</code> or <code>Failed</code>. <code>drop()</code> doesn't return counts, so counts come from the classify step plus confirmation, never from the absence of an error alone.</li>
+                <li><strong>Deleting a vertex removes all its incident edges.</strong> Choose a relationship policy per vertex rule (<code>VertexEdgePolicy</code>). <code>ORPHAN_ONLY</code> is the safe default.</li>
+                <li><strong>Query construction:</strong> pass IDs and values through driver bytecode or parameter binding, never string concatenation. Check that timestamp units (seconds or milliseconds) match the stored property.</li>
+                <li><strong>Conflicts:</strong> retry <code>ConcurrentModificationException</code> with bounded exponential backoff and jitter, and count retries in <code>ConcurrentModificationRetries</code>. On <code>ReadOnlyViolationException</code> (writer moved), reconnect to the cluster endpoint, mark the in-flight batch <code>Uncertain</code> and resolve it.</li>
+            </ul>
+        </div>
+    </section>
+
+    <!-- SECTION 6 (new in v2.3) -->
+    <section>
+        <h2>6. Per-Tenant Encryption Boundary (KMS &amp; BYOK)</h2>
+        <p>Each tenant has one of two encryption modes, set in <code>TenantConfig</code>. <code>TENANT_KEY</code>: the tenant has a dedicated cluster encrypted with its own customer managed key, which may use imported (BYOK) key material. <code>PLATFORM_KEY</code>: the cluster is shared, or dedicated without a tenant key, and uses the platform key. A <code>TENANT_KEY</code> tenant never shares a cluster, because a Neptune cluster has exactly one storage key and that key can't be changed after creation. Whether the key is BYOK is read from <code>DescribeKey</code> (<code>Origin=EXTERNAL</code>) at run time, not stored in config.</p>
+
+        <div class="callout rose">
+            <div class="callout-title">Losing the key permanently breaks the cluster</div>
+            <p style="margin-bottom:0;">AWS: if Neptune loses access to a cluster's encryption key, for example because access was revoked, <em>the cluster is placed into a terminal state and can only be restored from a backup</em>. This also applies to the discovery clone. For BYOK tenants, deleting the key material, letting it expire, or disabling the key all have this effect. The purge engine therefore checks the key before it creates anything, treats key loss mid-run as a permanent failure (not a pause), and never retries automatically.</p>
+        </div>
+
+        <div class="card" style="margin-bottom:1.5rem;">
+            <div class="card-header"><h3>6.1 Which key protects each resource</h3><span class="badge rose">Encryption Boundary</span></div>
+            <div class="table-wrap" style="margin:0;">
+                <table>
+                    <thead><tr><th>Resource</th><th>Key</th><th>What it holds</th><th>How it's enforced</th></tr></thead>
+                    <tbody>
+                        <tr><td>Production Neptune cluster</td><td><strong>Tenant key</strong> (<code>TENANT_KEY</code>) or platform key</td><td>Customer graph data</td><td>Set when the cluster is created and immutable afterwards. The preflight checks <code>DescribeDBClusters.KmsKeyId</code> = <code>TenantKmsKeyArn</code>.</td></tr>
+                        <tr><td>Discovery clone</td><td><strong>Same key as the source</strong></td><td>Full copy-on-write view of the cluster</td><td>The restore omits <code>KmsKeyId</code>, so the clone inherits the source key. Verified after the restore, before discovery starts.</td></tr>
+                        <tr><td>S3 manifests, <code>_SEALED</code>, checkpoint objects</td><td><strong>Tenant key</strong> (<code>TENANT_KEY</code>) or platform key</td><td>Candidate IDs plus eligibility metadata</td><td>Every <code>PutObject</code> sends <code>SSEKMSKeyId</code> (full key ARN). The bucket policy denies a write without the right key or from an untagged session (6.3). S3 Bucket Keys are on, so KMS calls are made per key rather than per object.</td></tr>
+                        <tr><td>Athena query results</td><td><strong>Tenant key</strong> (<code>TENANT_KEY</code>) or platform key</td><td>Audit query output from manifests</td><td>One Athena workgroup per <code>TENANT_KEY</code> tenant with <code>SSE_KMS</code> = tenant key and <code>EnforceWorkGroupConfiguration=true</code>. Queries run under the tenant-tagged role. The Glue table is partitioned by tenant.</td></tr>
+                        <tr><td>SQS edge/vertex queues + DLQ</td><td>Platform key</td><td>Pointers: <code>RunKey</code>, <code>ChunkId</code>, S3 key</td><td>Classification rule (6.4). Messages never carry IDs or property values.</td></tr>
+                        <tr><td>DynamoDB: config, run ledger, chunk ledger, cluster lease</td><td>Platform key</td><td>Config, counts, leases, anonymized cursor</td><td>Classification rule (6.4). <code>LastCursor</code> is an anonymized element ID.</td></tr>
+                        <tr><td>CloudWatch Logs (Batch, Step Functions)</td><td>Platform key</td><td>Structured logs and EMF counts</td><td>Neptune driver exceptions are sanitized before logging, because they can echo query text (6.4).</td></tr>
+                        <tr><td>Step Functions execution history</td><td>Platform key</td><td>Tenant ID, config references, run state</td><td>The state payload carries references, never manifest contents.</td></tr>
+                        <tr><td>Fargate ephemeral storage</td><td>Fargate default</td><td>Nothing, by design</td><td>Chunks are built in memory and streamed to S3; nothing is written to local disk.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card" style="margin-bottom:1.5rem;">
+            <div class="card-header"><h3>6.2 Key preflight and failure handling</h3><span class="badge amber">Fail Closed</span></div>
+            <p>Step Functions runs these checks with <code>aws-sdk:kms:describeKey</code> and <code>aws-sdk:neptune:describeDBClusters</code>, at run start and before resuming a <code>PAUSED</code> run. A failed check starts nothing: no clone is created and no delete is sent.</p>
+            <div class="table-wrap" style="margin:0;">
+                <table>
+                    <thead><tr><th>Condition</th><th>Detected by</th><th>Action</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>TENANT_KEY</code> tenant's cluster is also referenced by another enabled tenant</td><td>Config validation on write and at run start</td><td>Reject the config. Skip with <code>SkipReason=SHARED_CLUSTER_WITH_TENANT_KEY</code>.</td></tr>
+                        <tr><td>Cluster <code>KmsKeyId</code> ≠ <code>TenantKmsKeyArn</code>, or <code>StorageEncrypted=false</code></td><td><code>DescribeDBClusters</code></td><td>Skip with <code>SkipReason=KEY_MISMATCH</code>. Raise a config-drift alarm.</td></tr>
+                        <tr><td><code>KeyState</code> ≠ <code>Enabled</code> (<code>Disabled</code>, <code>PendingDeletion</code>, <code>PendingImport</code>, <code>Unavailable</code>)</td><td><code>DescribeKey</code></td><td>Skip with <code>SkipReason=TENANT_KEY_UNAVAILABLE</code>. Raise the per-tenant key alarm. Don't touch the cluster.</td></tr>
+                        <tr><td>BYOK: <code>Origin=EXTERNAL</code>, <code>ExpirationModel=KEY_MATERIAL_EXPIRES</code> and <code>ValidTo</code> &lt; now + <code>MinKeyMaterialValidityHours</code></td><td><code>DescribeKey</code></td><td>Skip with <code>SkipReason=TENANT_KEY_EXPIRING</code>. Raise an alarm so the tenant re-imports key material before the cluster becomes inaccessible.</td></tr>
+                        <tr><td>Mid-run: a KMS error surfaced by S3 (for example <code>KMS.DisabledException</code>, or access denied on the key), or a clone or cluster status of <code>inaccessible-encryption-credentials</code></td><td>Job error classification. Cluster status checked on every clone poll and every health cycle.</td><td>The Batch <code>retryStrategy.evaluateOnExit</code> exits without retrying. The executor treats it as Red and stops new writes, marks in-flight batches <code>Uncertain</code>, and the run becomes <code>FAILED</code> with <code>FailureReason=TENANT_KEY_UNAVAILABLE</code>. The clone teardown still runs.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="muted" style="margin:0.75rem 0 0;"><code>MinKeyMaterialValidityHours</code> must cover the discovery job timeout (6h) plus <code>MaintenanceWindowMaxMinutes</code>, with margin (default 48h). If a tenant revokes or deletes its key, that tenant's outstanding manifests become unreadable. The run stays <code>FAILED</code> and is never resumed. The next run starts a new discovery once the key is usable again.</p>
+        </div>
+
+        <div class="card" style="margin-bottom:1.5rem;">
+            <div class="card-header"><h3>6.3 IAM, key policy and S3 enforcement</h3><span class="badge indigo">Tenant-Tagged Sessions</span></div>
+            <p>Batch can't override a job role per job, so both job roles hold only Neptune data-plane rights plus <code>sts:AssumeRole</code>/<code>sts:TagSession</code> on <code>neptune-purge-tenant-data</code>. When a container starts, it assumes that role with session tags <code>TenantId</code> and <code>TenantKmsKeyArn</code>, taken from job parameters set by Step Functions from <code>TenantConfig</code>. All S3 and KMS access uses that session. Role chaining caps the session at 1 hour, so containers use an auto-refreshing STS credentials provider with the same tags.</p>
+<pre><code>// (a) Statements added to every TENANT_KEY key policy (BYOK keys included)
+{ "Sid": "PurgeCloneGrant",                      // RestoreDBClusterToPointInTime creates a grant for Neptune
+  "Effect": "Allow",
+  "Principal": { "AWS": "arn:aws:iam::111122223333:role/neptune-purge-sfn" },
+  "Action": "kms:CreateGrant",
+  "Resource": "*",
+  "Condition": { "StringEquals": { "kms:ViaService": "rds.eu-west-1.amazonaws.com" },
+                 "Bool": { "kms:GrantIsForAWSResource": "true" } } },
+{ "Sid": "PurgePreflightDescribe",
+  "Effect": "Allow",
+  "Principal": { "AWS": "arn:aws:iam::111122223333:role/neptune-purge-sfn" },
+  "Action": "kms:DescribeKey",
+  "Resource": "*" },
+{ "Sid": "PurgeManifestCrypto",                  // only sessions tagged for THIS tenant, only via S3
+  "Effect": "Allow",
+  "Principal": { "AWS": "arn:aws:iam::111122223333:role/neptune-purge-tenant-data" },
+  "Action": [ "kms:GenerateDataKey", "kms:Decrypt" ],
+  "Resource": "*",
+  "Condition": { "StringEquals": { "kms:ViaService": "s3.eu-west-1.amazonaws.com",
+                                   "aws:PrincipalTag/TenantId": "tenant-eu-fin-042" } } }
+
+// (b) neptune-purge-tenant-data identity policy: own prefix only
+{ "Effect": "Allow",
+  "Action": [ "s3:GetObject", "s3:PutObject" ],
+  "Resource": "arn:aws:s3:::neptune-purge-manifests/${aws:PrincipalTag/TenantId}/*" }
+
+// (c) Bucket policy on neptune-purge-manifests
+{ "Sid": "DenyUntaggedWriters", "Effect": "Deny", "Principal": "*",
+  "Action": "s3:PutObject", "Resource": "arn:aws:s3:::neptune-purge-manifests/*",
+  "Condition": { "Null": { "aws:PrincipalTag/TenantId": "true" } } },
+{ "Sid": "DenyWrongKmsKey", "Effect": "Deny", "Principal": "*",
+  "Action": "s3:PutObject", "Resource": "arn:aws:s3:::neptune-purge-manifests/*",
+  "Condition": { "StringNotEquals": {
+      "s3:x-amz-server-side-encryption-aws-kms-key-id": "${aws:PrincipalTag/TenantKmsKeyArn}" } } }</code></pre>
+            <ul style="margin-bottom:0;">
+                <li><strong>Executor deletes need no KMS access.</strong> Neptune data-plane queries are authorized by IAM database authentication. The cluster uses its own grant to decrypt.</li>
+                <li><strong>Session tags protect against mistakes, not against compromised code.</strong> The job picks its own tags from its input, so tagging stops cross-tenant bugs but not a malicious container. If a BYOK tenant contractually requires a hard role boundary, register a per-tenant job definition with a per-tenant job role (same policies with fixed values instead of tags).</li>
+                <li><strong>Key policy ownership:</strong> statements (a) are added when the tenant's key is onboarded and checked by IaC drift detection. Without them, the restore fails with a KMS access error, which the preflight reports as <code>KEY_MISMATCH</code>/<code>TENANT_KEY_UNAVAILABLE</code> rather than as a generic failure.</li>
+                <li><strong>Reaper:</strong> deleting a clone needs no KMS access. Deleting it retires its grant.</li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><h3>6.4 Data classification for platform-key stores</h3><span class="badge emerald">Rule</span></div>
+            <p>SQS, DynamoDB, CloudWatch Logs and Step Functions are shared across tenants and use the platform key. That's acceptable only because they never hold customer data:</p>
+            <ul style="margin-bottom:0;">
+                <li><strong>Allowed:</strong> tenant ID, run ID, chunk ID, S3 object keys, counts, run timestamps, rule versions, and <strong>anonymized element IDs</strong> (for example <code>LastCursor</code>).</li>
+                <li><strong>Never allowed:</strong> property values, eligibility metadata, manifest lines, or raw query text. Sanitize Neptune driver exceptions (which can echo predicates and IDs) before logging, and keep only the error code and a request ID.</li>
+                <li><strong>Guardrail:</strong> <code>TenantConfig.ElementIdsAnonymized</code> must be <code>true</code> for the cursor to live in DynamoDB. If a tenant's element IDs are natural keys, the cursor moves to <code>s3://…/{tenant}/{run}/_cursor.json</code> under the tenant key, and DynamoDB stores only that S3 key.</li>
+            </ul>
+        </div>
+    </section>
+
+    <!-- SECTION 7 -->
+    <section>
+        <h2>7. Multi-Tenant DynamoDB Control &amp; Ledger Schemas</h2>
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-header"><h3>1A: <code>NeptuneTenantPurgeConfig</code> (Provisioned)</h3><span class="badge blue">PROVISIONED</span></div>
+<pre><code>{
+  "TenantId": "tenant-eu-fin-042",
+  "IsEnabled": true,
+  "SourceClusterIdentifier": "neptune-prod-tenant-042",
+  "ClusterComputeMode": "PROVISIONED",
+  "WriterEndpoint": "neptune-prod-042.cluster-xyz.eu-west-1.neptune.amazonaws.com",
+  "Encryption": {                          // v2.3: dedicated cluster, tenant key (BYOK)
+    "EncryptionMode": "TENANT_KEY",        // TENANT_KEY | PLATFORM_KEY
+    "TenantKmsKeyArn": "arn:aws:kms:eu-west-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+    "MinKeyMaterialValidityHours": 48,     // BYOK: ValidTo must cover the run
+    "ElementIdsAnonymized": true           // cursor may live in DynamoDB (6.4)
+  },
+  "CloneComputeConfig": {
+    "InstanceClass": "db.r6g.xlarge",
+    "DBSubnetGroupName": "neptune-purge-clone-subnets",
+    "VpcSecurityGroupIds": ["sg-0clone042"],
+    "DBClusterParameterGroupName": "neptune-purge-clone-params",
+    "EnableIAMDatabaseAuthentication": true
+  },
+  "QueryLanguage": "Gremlin",
+  "TenantIdProperty": "tenantId",
+  "DiscoveryRules": [
+    { "EntityType": "EDGE", "Label": "SESSION_EVENT", "TimestampProperty": "expiresAtEpoch",
+      "CutoffMode": "BEFORE_RUN_CUTOFF" },
+    { "EntityType": "VERTEX", "Label": "AuditTrace", "TimestampProperty": "createdAtEpoch",
+      "CutoffMode": "RETENTION_DAYS", "RetentionDays": 180, "VertexEdgePolicy": "ORPHAN_ONLY" }
+  ],
+  "ThrottlePolicy": {                      // per source cluster; strictest wins if tenants share one
+    "InitialBatchSize": 200,
+    "MaxBatchSize": 500,
+    "InitialRate": 1.0,                     // cluster-wide micro-batches per second
+    "MinRate": 0.25,
+    "MaxRate": 4.0,
+    "RateIncreaseStep": 0.25,
+    "GreenSamplesToIncrease": 3,
+    "CpuThrottleThresholdPct": 45.0,
+    "MaxCpuThresholdPct": 70.0,
+    "MaxPendingQueueDepth": 5,
+    "UndoLogThrottleThreshold": 250000,
+    "MaxUndoLogSize": 1000000,
+    "MaxConflictRetriesPerMinute": 3,
+    "AppP95SloMs": 250,
+    "MaintenanceWindowMaxMinutes": 360
+  }
+}</code></pre>
+            </div>
+            <div class="card">
+                <div class="card-header"><h3>1B: <code>NeptuneTenantPurgeConfig</code> (Serverless)</h3><span class="badge indigo">SERVERLESS</span></div>
+<pre><code>{
+  "TenantId": "tenant-eu-sls-019",
+  "IsEnabled": true,
+  "SourceClusterIdentifier": "neptune-sls-tenant-019",
+  "ClusterComputeMode": "SERVERLESS",
+  "WriterEndpoint": "neptune-sls-019.cluster-xyz.eu-west-1.neptune.amazonaws.com",
+  "Encryption": {                          // v2.3: platform key (cluster may be shared)
+    "EncryptionMode": "PLATFORM_KEY",      // key ARN comes from platform settings
+    "ElementIdsAnonymized": true
+  },
+  "CloneComputeConfig": {
+    "InstanceClass": "db.serverless",
+    "ServerlessV2ScalingConfiguration": { "MinCapacity": 2.0, "MaxCapacity": 16.0 },
+    "DBSubnetGroupName": "neptune-purge-clone-subnets",
+    "VpcSecurityGroupIds": ["sg-0clone019"],
+    "DBClusterParameterGroupName": "neptune-purge-clone-params",
+    "EnableIAMDatabaseAuthentication": true
+  },
+  "QueryLanguage": "Gremlin",
+  "TenantIdProperty": "tenantId",
+  "DiscoveryRules": [
+    { "EntityType": "EDGE", "Label": "SESSION_EVENT", "TimestampProperty": "expiresAtEpoch",
+      "CutoffMode": "BEFORE_RUN_CUTOFF" }
+  ],
+  "ThrottlePolicy": {                      // per source cluster; strictest wins if tenants share one
+    "InitialBatchSize": 100,
+    "MaxBatchSize": 350,
+    "InitialRate": 1.0,
+    "MinRate": 0.25,
+    "MaxRate": 3.0,
+    "RateIncreaseStep": 0.25,
+    "GreenSamplesToIncrease": 3,
+    "CpuThrottleThresholdPct": 45.0,
+    "MaxCpuThresholdPct": 70.0,
+    "MaxPurgeNcuThreshold": 12.0,
+    "NcuUtilizationThrottleThresholdPct": 50.0,
+    "MaxNcuUtilizationPct": 75.0,
+    "MinBufferCacheHitRatioPct": 99.0,
+    "StopBufferCacheHitRatioPct": 95.0,
+    "MaxPendingQueueDepth": 5,
+    "UndoLogThrottleThreshold": 250000,
+    "MaxUndoLogSize": 1000000,
+    "MaxConflictRetriesPerMinute": 3,
+    "AppP95SloMs": 250,
+    "MaintenanceWindowMaxMinutes": 360
+  }
+  // Cluster MaxCapacity is read from DescribeDBClusters at run start
+}</code></pre>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><h3>Table 2: <code>NeptunePurgeRunLedger</code></h3><span class="badge emerald">PK: TenantId | SK: RunId</span></div>
+<pre><code>{
+  "TenantId": "tenant-eu-sls-019",
+  "RunId": "2026-W47-20261122T010000Z",
+  "ClusterComputeMode": "SERVERLESS",
+  "RunStatus": "COMPLETED",                 // or RUNNING / PAUSED / FAILED / SKIPPED
+  "SkipReason": null,                       // KEY_MISMATCH / TENANT_KEY_UNAVAILABLE / TENANT_KEY_EXPIRING / ...
+  "FailureReason": null,                    // e.g. TENANT_KEY_UNAVAILABLE (never auto-retried)
+  "RuleVersion": "v3",
+  "CutoffEpoch": 1795309200,                // frozen at run start
+  "Encryption": {                           // v2.3: frozen at preflight
+    "EncryptionMode": "PLATFORM_KEY",
+    "KmsKeyArn": "arn:aws:kms:eu-west-1:111122223333:key/platform-purge-key-id",
+    "KeyOrigin": "AWS_KMS",                 // EXTERNAL = BYOK
+    "KeyStateAtPreflight": "Enabled",
+    "KeyMaterialValidTo": null,             // BYOK with expiring material only
+    "ClusterKeyVerified": true,             // source and clone KmsKeyId = KmsKeyArn
+    "ManifestSseKmsKeyArn": "arn:aws:kms:eu-west-1:111122223333:key/platform-purge-key-id"
+  },
+  "DiscoveryPhase": {
+    "CloneClusterId": "neptune-clone-019-2026w47",
+    "CloneInstanceId": "neptune-clone-019-2026w47-i1",
+    "CloneCreatedAt": "2026-11-22T01:06:12Z",
+    "CloneDestroyedAt": "2026-11-22T01:28:45Z",
+    "CloneCleanupStatus": "DELETED",
+    "LastCursor": "edge:~id:9f2c...",              // Spot-interruption resume point
+    "SpotInterruptions": 0,
+    "DiscoveredEdges": 4820150,
+    "DiscoveredVertices": 1105400,
+    "ManifestS3Prefix": "s3://neptune-purge-manifests/tenant-eu-sls-019/2026-W47/",
+    "EdgeChunks": 965,
+    "VertexChunks": 222,
+    "TotalChunksEnqueued": 1187,
+    "ManifestSealed": true
+  },
+  "ExecutionPhase": {
+    "StartedAt": "2026-11-22T01:29:00Z",
+    "CompletedAt": "2026-11-22T03:14:22Z",
+    "ConfirmedDeletedEdges": 4810022,
+    "ConfirmedDeletedVertices": 1102390,
+    "AlreadyAbsentIds": 9135,
+    "NoLongerEligibleIds": 4003,
+    "UncertainOutcomeIds": 0,
+    "FailedIdsCount": 0,
+    "PeakObservedNcus": 11.5,
+    "CircuitBreakerTrips": 1,
+    "ConcurrentModificationRetries": 37,
+    "AvgBatchLatencyMs": 48.4
+  }
+}</code></pre>
+            <p class="muted" style="margin-bottom:0;">Chunk math: edges and vertices are chunked separately for the phase barrier. ⌈4,820,150 ÷ 5,000⌉ = 965 edge chunks, plus ⌈1,105,400 ÷ 5,000⌉ = 222 vertex chunks, gives 1,187. Resolved = 4,810,022 + 1,102,390 + 9,135 + 4,003 = 5,925,550 = discovered ✓.</p>
+        </div>
+        <div class="card" style="margin-top:1.5rem;">
+            <div class="card-header"><h3>Tables 3 &amp; 4: Chunk Ledger and Cluster Lease</h3><span class="badge emerald">Exactly-Once Accounting</span></div>
+<pre><code>// Table 3: NeptunePurgeChunkLedger   PK: RunKey (TenantId#RunId)   SK: ChunkId
+{
+  "RunKey": "tenant-eu-sls-019#2026-W47-20261122T010000Z",
+  "ChunkId": "EDGE-000001",
+  "Phase": "EDGE",
+  "Status": "COMPLETED",                    // PENDING / CLAIMED / COMPLETED / UNCERTAIN / DLQ
+  "ManifestKey": "tenant-eu-sls-019/2026-W47/edge-000001.jsonl.gz",
+  "TotalIds": 5000,
+  "ConfirmedDeletedIds": 4980,
+  "AlreadyAbsentIds": 12,
+  "NoLongerEligibleIds": 8,
+  "UncertainOutcomeIds": 0,
+  "FailedIds": 0,
+  "LastProcessedOffset": 5000,
+  "ClaimedBy": "batch-job-7f3e",
+  "LeaseVersion": 3,                        // fencing token for conditional claims
+  "LeaseExpiresAt": 1795316400
+}
+
+// Table 4: NeptunePurgeClusterLease   PK: ClusterResourceId   (TTL on ExpiresAt)
+{
+  "ClusterResourceId": "cluster-ABCDEFGHIJKLMNOP",
+  "HolderRunKey": "tenant-eu-sls-019#2026-W47-20261122T010000Z",
+  "FencingToken": 42,
+  "HeartbeatAt": 1795310400,
+  "ExpiresAt": 1795311000,
+  "CurrentRate": 1.75
+}</code></pre>
+            <ul style="margin-bottom:0;">
+                <li><strong>Claim:</strong> a chunk is claimed with a conditional update (<code>Status = PENDING</code>, or a <code>CLAIMED</code> lease that has expired) that increments <code>LeaseVersion</code>. Writes from a holder with a stale token are rejected.</li>
+                <li><strong>Complete:</strong> <code>TransactWriteItems</code> sets the chunk to <code>COMPLETED</code> and adds its outcome counts to the run ledger in one transaction. The condition <code>Status &lt;&gt; COMPLETED</code> prevents double counting when SQS redelivers the message (delivery is at-least-once).</li>
+                <li><strong>Crash after commit:</strong> Neptune, SQS and DynamoDB don't share a transaction. If a worker crashes after the graph commit but before the ledger commit, the chunk is <code>UNCERTAIN</code>. Resolve it by re-reading the IDs, not by re-counting.</li>
+                <li><strong>Pointer rebuild:</strong> rebuild expired or missing SQS pointers from the sealed manifest plus the chunk ledger, never from queue depth.</li>
+            </ul>
+        </div>
+    </section>
+
+    <!-- SECTION 8 -->
+    <section>
+        <h2>8. Observability: Discovered vs. Purged</h2>
+        <p>Both containers write structured JSON logs in <strong>CloudWatch Embedded Metric Format (EMF)</strong> under the namespace <code>NeptunePurge/MultiTenant</code>. This avoids <code>PutMetricData</code> API calls, but each unique metric and dimension combination is still billed as a custom metric. Keep dimensions to <code>TenantId</code> and <code>EntityType</code>.</p>
+        <div class="grid-3">
+            <div class="card">
+                <div class="card-header"><h3>1. Progress Metrics</h3></div>
+                <ul>
+                    <li><code>RecordsDiscovered</code>, <code>RecordsDeleted</code>, <code>RecordsAlreadyAbsent</code>, <code>RecordsNoLongerEligible</code>, <code>RecordsUncertain</code> (<code>TenantId</code>, <code>EntityType</code>)</li>
+                    <li><code>PurgeCompletionRatio</code>: a dashboard estimate from metric math over aligned periods. Exact per-run figures come from the run ledger: (Deleted + AlreadyAbsent + NoLongerEligible) ÷ Discovered.</li>
+                    <li><code>RemainingBacklogRecords</code> ≈ (<code>ApproximateNumberOfMessagesVisible</code> + <code>ApproximateNumberOfMessagesNotVisible</code>) × 5,000. Both SQS metrics are approximate. The exact backlog is the sealed manifest totals minus terminal outcomes in the chunk ledger.</li>
+                </ul>
+            </div>
+            <div class="card">
+                <div class="card-header"><h3>2. Health &amp; Throttle Metrics</h3></div>
+                <ul>
+                    <li><code>BatchDeleteLatencyMs</code> (p50/p95/p99)</li>
+                    <li><code>ActiveBatchSize</code>, <code>ActiveWorkerThreads</code></li>
+                    <li><code>ObservedWriterNcus</code> vs. <code>ConfiguredMaxPurgeNcu</code></li>
+                    <li><code>ThrottleBackoffEvents</code>, <code>CircuitBreakerPausedSeconds</code>, <code>ConcurrentModificationRetries</code></li>
+                </ul>
+            </div>
+            <div class="card">
+                <div class="card-header"><h3>3. Cost &amp; Safety Guardrails</h3></div>
+                <ul>
+                    <li><strong>Orphan clone reaper:</strong> a Step Functions <code>Catch</code> on every clone path, plus an <strong>hourly EventBridge Scheduler → reaper state machine</strong>. The reaper deletes a clone only when all three hold: (a) it carries <code>Purpose=NeptunePurgeDiscovery</code>, <code>RunId</code> and <code>SourceClusterId</code> tags; (b) the owning execution is no longer <code>RUNNING</code> or its run-lease heartbeat has expired; (c) its identifier matches the clone naming pattern. Age alone is never enough, because discovery can legitimately run up to its 6h job timeout. It deletes the instance, waits, then deletes the cluster with <code>SkipFinalSnapshot</code>. This also keeps you under the limit of 15 clones per copy. A clone in <code>inaccessible-encryption-credentials</code> (tenant key lost) is still deleted. If the delete is rejected, the reaper emits <code>CloneStuckKeyUnavailable</code> for manual action.</li>
+                    <li><strong>Tenant key alarms (v2.3):</strong> <code>TenantKeyUnavailable</code> (<code>TenantId</code>) on any key-related skip or failure. <code>KeyMaterialHoursRemaining</code> for BYOK keys with expiring material, with an alarm below 2× <code>MinKeyMaterialValidityHours</code>. <code>KeyMismatch</code> when config drift is detected. These go to the tenant-operations channel, separately from purge health, because key loss affects the production cluster as well.</li>
+                    <li><strong>DLQ alarm:</strong> <code>RedrivePolicy.maxReceiveCount=3</code> → <code>NeptunePurgeChunkDLQ</code>. Alarm on <code>ApproximateNumberOfMessagesVisible &gt; 0</code>.</li>
+                    <li><strong>Stale telemetry:</strong> the executor stops new writes when writer <code>CPUUtilization</code> has been missing for 3 minutes or the writer instance changes. Alarm on <code>CircuitBreakerPausedSeconds</code>.</li>
+                    <li><strong>Alarms on Neptune metrics:</strong> <code>TreatMissingData=notBreaching</code>, because Neptune publishes only non-zero values.</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2>9. AWS Documentation Sources</h2>
+        <ul>
+            <li><a href="https://docs.aws.amazon.com/neptune/latest/userguide/manage-console-cloning.html">Database Cloning in Neptune</a> (copy-on-write, limits)</li>
+            <li><a href="https://docs.aws.amazon.com/neptune/latest/apiref/API_RestoreDBClusterToPointInTime.html">Neptune API: RestoreDBClusterToPointInTime</a> (cluster only, default security group, ServerlessV2ScalingConfiguration)</li>
+            <li><a href="https://docs.aws.amazon.com/neptune/latest/userguide/cw-metrics.html">Neptune CloudWatch Metrics</a> (full metric list, 1-minute resolution, non-zero-only publishing, NCUUtilization definition)</li>
+            <li><a href="https://docs.aws.amazon.com/neptune/latest/userguide/best-practices-general-metrics.html">Best Practices for Neptune Metrics</a> (BufferCacheHitRatio 99.9%, 75% CPU line)</li>
+            <li><a href="https://docs.aws.amazon.com/neptune/latest/userguide/neptune-serverless-capacity-scaling.html">Neptune Serverless Capacity Scaling</a> (1.0–128.0 NCUs, 2 GiB per NCU)</li>
+            <li><a href="https://docs.aws.amazon.com/neptune/latest/userguide/iam-dp-actions.html">IAM actions for data access in Neptune</a> (<code>ReadDataViaQuery</code>, <code>DeleteDataViaQuery</code>, <code>GetQueryStatus</code>)</li>
+            <li><a href="https://docs.aws.amazon.com/neptune/latest/userguide/gremlin-api-status.html">Gremlin query status API</a> (<code>acceptedQueryCount</code>, <code>runningQueryCount</code>)</li>
+            <li><a href="https://docs.aws.amazon.com/step-functions/latest/dg/input-output-itemreader.html">Step Functions ItemReader (Map)</a> (S3-only data sources)</li>
+            <li><a href="https://docs.aws.amazon.com/step-functions/latest/dg/connect-batch.html">Step Functions + AWS Batch</a> (<code>submitJob.sync</code>)</li>
+            <li><a href="https://aws.amazon.com/sqs/faqs/">Amazon SQS FAQs</a> (retention: 1 minute to 14 days, default 4 days) · <a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/APIReference/API_ChangeMessageVisibility.html">ChangeMessageVisibility</a> (12h max)</li>
+            <li><a href="https://aws.amazon.com/blogs/hpc/why-use-fargate-with-aws-batch-for-serverless-batch-compute/">Fargate with AWS Batch</a> (Spot 2-minute SIGTERM, no ARM64)</li>
+            <li><a href="https://docs.aws.amazon.com/neptune/latest/userguide/encrypt.html">Encrypting Neptune resources at rest</a> (key fixed at creation; lost key access → terminal state, restore from backup)</li>
+            <li><a href="https://docs.aws.amazon.com/neptune/latest/apiref/API_RestoreDBClusterToPointInTime.html">RestoreDBClusterToPointInTime: KmsKeyId</a> (omitted → restored cluster uses the source cluster's key)</li>
+            <li><a href="https://docs.aws.amazon.com/kms/latest/developerguide/importing-keys.html">KMS imported key material (BYOK)</a> (<code>Origin=EXTERNAL</code>, <code>ValidTo</code>, <code>PendingImport</code>)</li>
+            <li><a href="https://docs.aws.amazon.com/kms/latest/developerguide/conditions-kms.html">KMS condition keys</a> (<code>kms:ViaService</code>, <code>kms:GrantIsForAWSResource</code>)</li>
+            <li><a href="https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucket-key.html">S3 Bucket Keys for SSE-KMS</a> · <a href="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_session-tags.html">IAM session tags</a> · <a href="https://docs.aws.amazon.com/athena/latest/ug/encrypting-query-results-stored-in-s3.html">Athena query result encryption</a></li>
+        </ul>
+    </section>
+
+
+</body>
+</html>
